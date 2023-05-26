@@ -124,7 +124,7 @@ class BaseModule(pl.LightningModule):
 
     def configure_optimizers(self) -> Any:
         lr, finetune_lr_scale, weight_decay = self.lr, self.finetune_lr_scale, self.weight_decay
-        finetuning = getattr(self, 'finetune_list', default=list())
+        finetuning = getattr(self, 'finetune_list', list())
 
         # create optimizer
         param_groups = make_parameter_groups(self, lr, finetune_lr_scale, weight_decay, finetuning)
