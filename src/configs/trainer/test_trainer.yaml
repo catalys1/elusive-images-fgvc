@@ -1,0 +1,22 @@
+# Template for config files
+# seed_everything: 12345
+trainer:
+  enable_checkpointing: true
+  default_root_dir: logs/__tests/
+  num_nodes: 1
+  devices: 1
+  accelerator: gpu
+  strategy: auto
+  enable_progress_bar: true
+  check_val_every_n_epoch: 1
+  max_epochs: 200
+  log_every_n_steps: 50
+  precision: 16
+  num_sanity_val_steps: 1
+
+  # callbacks
+  callbacks:
+    - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+
+  # logging
+  logger: True
