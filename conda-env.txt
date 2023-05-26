@@ -51,7 +51,6 @@ expat=2.5.0=hcb278e6_1
 fastapi=0.88.0=pyhd8ed1ab_0
 fastjsonschema=2.17.1=pypi_0
 ffmpeg=4.3=hf484d3e_0
-fgvcdata=0.1.0=dev_0
 filelock=3.9.0=py311h06a4308_0
 fqdn=1.5.1=pypi_0
 freetype=2.12.1=h4a9f257_0
