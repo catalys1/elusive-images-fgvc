@@ -5,10 +5,11 @@ via Progressive Multi-Granularity Training of Jigsaw Patches"
 
 Adapted from https://github.com/PRIS-CV/PMG-Progressive-Multi-Granularity-Training
 '''
-import pytorch_lightning as pl
-import torch, torchvision
+from typing import Optional
 
-from .base import BaseModule
+import torch
+
+from .base import ImageClassifier, get_backbone
 
 
 __all__ = [
@@ -67,45 +68,60 @@ def forward_func(self, x):
 # Lightning Module for PMG
 ################################################################################
 
-class PMG(BaseModule):
+class PMG(ImageClassifier):
+    '''Progressive Multi-Granularity Training of Jigsaw Patches (PMG).
+
+    Args:
+        feature_size (int): 
+    '''
     def __init__(
         self,
         feature_size: int=512,
-        **kwargs,
+        base_conf: Optional[dict]=None,
+        model_conf: Optional[dict]=None,
     ):
-        BaseModule.__init__(self, **kwargs)
-        self.feature_size = feature_size
-    
-        # nclass = self.nclass
-        # base = self.hparams.net
-        # pretrained = self.hparams.pretrained
+        # enable manual optimization, since PMG performs multiple forward/backward passes per batch
+        self.automatic_optimization = False
 
-        # net = getattr(torchvision.models, base)(pretrained)
-        # self.net = basemodel.ResnetBase(net, forward_func)
-        self.maxpool = torch.nn.AdaptiveMaxPool2d((1,1))
+        self.feature_size = feature_size
+
+        # PMG uses features extracted from multiple stages of the network
+        model_conf['model_kw'] = model_conf['model_kw'] or {}
+        model_conf['model_kw'].update(
+            features_only=True,
+            out_indices=(2, 3, 4),  # last 3 stages of the ResNet backbone
+        )
+
+        # parent class initialization
+        ImageClassifier.__init__(self, base_conf=base_conf, model_conf=model_conf)
+    
+    def setup_model(self):
+        with torch.no_grad():
+            _x = torch.ones(1, 3, 33, 33)
+            channels = [v.shape[1] for v in self.backbone(_x)]
+
+        self.maxpool = torch.nn.AdaptiveMaxPool2d((1, 1))
         
         # conv blocks
         self.conv_blocks = torch.nn.ModuleList([
-            ConvBlock(self.net.cout//c, feature_size, self.net.cout//2)
-            for c in [4,2,1]
+            ConvBlock(c, self.feature_size, channels[-1] // 2)
+            for c in channels
         ])
 
         # classifier blocks
         self.classifiers = torch.nn.ModuleList([
-            Classifier(self.net.cout//2, feature_size, nclass)
+            Classifier(channels[-1] // 2, self.feature_size, self.num_classes)
             for _ in range(3)
         ])
-        self.classifier_concat = Classifier(
-            3*(self.net.cout//2), feature_size, nclass
-        )
+        self.classifier_concat = Classifier(3 * (channels[-1] // 2), self.feature_size, self.num_classes)
 
     def forward(self, x, level=None):
         # level can be 0, 1, 2, 3, or None (meaning all), specifying 
         # which of the intermediate outputs to compute and return
-        layer_outs = self.net(x)
+        layer_outs = self.backbone(x)
 
         # first 3 levels correspond to one of the granularity classifiers
-        if level in (0,1,2):
+        if level in (0, 1, 2):
             x = self.conv_blocks[level](layer_outs[level])
             x = self.maxpool(x)
             x = self.classifiers[level](x)
@@ -145,29 +161,30 @@ class PMG(BaseModule):
         return jigsaw.contiguous()
 
     def training_step(self, batch, batch_idx):
-        opt = self.optimizers()
         x, y = batch
+        opt = self.optimizers()
         losses = []
 
+        # forward and backward pass for each of the granularities
         ns = [8, 4, 2, 1]
-        for i in range(4):
+        for i, n in enumerate(ns):
             n = ns[i]
             js = self.jigsaw_generator(x, n) if n > 1 else x
             v = self(js, level=i)
-            loss = self.lossfn(v, y)
+            loss = self.objective(v, y)
+            opt.zero_grad()
             self.manual_backward(loss, opt)
             opt.step()
-            opt.zero_grad()
             losses.append(loss.detach())
 
-        acc = self.calc_accuracy(v, y)
+        # combined metrics
+        acc = self.train_accuracy(v, y)
         total_loss = sum(losses)
-        losses = {f'train_loss_lvl_{i}': ll for i, ll in enumerate(losses)}
+        losses = {f'train/loss_{i}': ll for i, ll in enumerate(losses)}
 
-        log_kw = dict(on_step=False, on_epoch=True)
-        self.log('train_loss', total_loss, prog_bar=True, **log_kw)
-        self.log('train_acc', acc, prog_bar=True, **log_kw)
-        self.log_dict(losses, **log_kw)
+        self.log('train/loss', total_loss, prog_bar=True)
+        self.log('train/acc', acc, prog_bar=True)
+        self.log_dict(losses)
 
         return total_loss.detach()
         
@@ -175,16 +192,16 @@ class PMG(BaseModule):
         x, y = batch
         outs = self(x, level=None)
         logits = sum(outs)
-        loss = self.lossfn(logits, y)
-        acc = self.calc_accuracy(logits, y)
+        loss = self.objective(logits, y)
+        acc = self.val_accuracy(logits, y)
 
         log_kw = dict(on_step=False, on_epoch=True, sync_dist=True)
-        self.log('val_loss', loss, prog_bar=True, **log_kw)
-        self.log('val_acc', acc, prog_bar=True, **log_kw)
+        self.log('val/loss', loss, prog_bar=True, **log_kw)
+        self.log('val/acc', acc, prog_bar=True, **log_kw)
         
     def test_step(self, batch, batch_idx):
         x, y = batch
         outs = self(x, level=None)
         logits = sum(outs)
-        return {'logits':logits, 'y': y}
+        return {'logits': logits, 'y': y}
     
