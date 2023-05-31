@@ -1,6 +1,6 @@
 '''
 '''
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import pytorch_lightning as pl
 from pytorch_lightning.utilities.types import STEP_OUTPUT
@@ -82,9 +82,8 @@ def get_optimizer(optim_name):
     return getattr(torch.optim, optim_name)
 
 
-class BaseModule(pl.LightningModule):
-    '''BaseModule. Inherits from LightningModule. Base class for defining new Methods.
-    Handles optimization setup and hyperparameters.
+class BaseConfig:
+    '''BaseModule configuration.
 
     Args:
         optimizer_name (str): name of the optimizer.
@@ -113,8 +112,6 @@ class BaseModule(pl.LightningModule):
         optim_kw: Optional[Dict]=None,
         preproc: Optional[str]=None,
     ):
-        super().__init__()
-
         self.optimizer_name = optimizer_name
         self.optim_kw = optim_kw or {}
 
@@ -125,9 +122,6 @@ class BaseModule(pl.LightningModule):
         self.lr_scale = lr_scale
         self.finetune_lr_scale = finetune_lr_scale
 
-        # scaling could come from linear scaling rule based on batch size
-        self.lr = base_lr * lr_scale
-
         supported_preproc = ('norm_in1k', 'norm_in21k')
         if preproc not in supported_preproc:
             raise RuntimeError(
@@ -136,13 +130,33 @@ class BaseModule(pl.LightningModule):
             )
         self.preproc = preproc
 
+
+class BaseModule(pl.LightningModule):
+    '''BaseModule. Inherits from LightningModule. Base class for defining new Methods.
+    Handles optimization setup and hyperparameters.
+
+    Args:
+        base_conf (optional dict): a dictionary containing arguments to override BaseConfig defaults.
+            See BaseConfig for accepted arguments.
+    '''
+    def __init__(
+        self,
+        base_config: Optional[dict]=None,
+    ):
+        super().__init__()
+
+        self.base_conf = BaseConfig(**(base_config or {}))
+
+        # scaling could come from linear scaling rule based on batch size
+        self.lr = self.base_conf.base_lr * self.base_conf.lr_scale
+
     def configure_optimizers(self) -> Any:
-        lr, finetune_lr_scale, weight_decay = self.lr, self.finetune_lr_scale, self.weight_decay
+        finetune_lr_scale, weight_decay = self.base_conf.finetune_lr_scale, self.base_conf.weight_decay
         finetuning = getattr(self, 'finetune_list', list())
 
         # create optimizer
-        param_groups = make_parameter_groups(self, lr, finetune_lr_scale, weight_decay, finetuning)
-        optimizer = get_optimizer(self.optimizer_name)(param_groups, lr=self.lr, **self.optim_kw)
+        param_groups = make_parameter_groups(self, self.lr, finetune_lr_scale, weight_decay, finetuning)
+        optimizer = get_optimizer(self.base_conf.optimizer_name)(param_groups, lr=self.lr, **self.base_conf.optim_kw)
 
         # create learning rate schedule
         scheduler = {
@@ -150,7 +164,7 @@ class BaseModule(pl.LightningModule):
                 optimizer=optimizer,
                 max_lr=[g['lr'] for g in param_groups],
                 total_steps=self.trainer.estimated_stepping_batches,
-                pct_start=self.warmup,
+                pct_start=self.base_conf.warmup,
             ),
             'interval': 'step',
         }
@@ -158,42 +172,62 @@ class BaseModule(pl.LightningModule):
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
 
     def on_after_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
-        if self.preproc == 'norm_in1k':
+        if self.base_conf.preproc == 'norm_in1k':
             batch[0] = torchvision.transforms.functional.normalize(batch[0].float().div_(255), *fgvcdata.IMAGENET_STATS)
-        elif self.preproc == 'norm_in21k':
+        elif self.base_conf.preproc == 'norm_in21k':
             batch[0] = batch[0].float().div_(255)
         return batch
+
+
+class ModelConfig:
+    '''Basic backbone model configuration.
+
+    Args:
+        model_name (str): name of timm model that will be used to create the backbone.
+        num_classes (int): number of classes that will be predicted.
+        pretrained (str | bool): if bool, use pretrained weights from timm. If str, should be a path
+            to a model checkpoint with pretrained weights (default: True).
+        model_kw (optional dict): additional keyword arguments passed to timm.create_model.
+    '''
+    def __init__(
+        self,
+        model_name: str,
+        num_classes: int,
+        pretrained: Union[str, bool]=True,
+        model_kw: Optional[Dict]=None,
+    ):
+        self.model_name = model_name
+        self.num_classes = num_classes
+        self.pretrained = pretrained
+        self.model_kw = model_kw
 
 
 class ImageClassifier(BaseModule):
     '''ImageClassifier.
 
     Args:
-        model_name (str): name of timm model that will be used to create the backbone.
-        num_classes (int): number of classes that will be predicted.
-        pretrained (bool): whether to use pretrained weights (default: True).
-        model_kw (optional dict): additional keyword arguments passed to timm.create_model
-        kwargs: additional arguments passed to BaseModule constructor
+        model_conf (optional dict): a dictionary containing arguments to override ModelConfig defaults.
+            See ModelConfig for accepted arguments.
+        base_conf (optional dict): a dictionary containing arguments to override BaseConfig defaults.
+            See BaseConfig for accepted arguments.
     '''
     def __init__(
         self,
-        model_name: str,
-        num_classes: int,
-        pretrained: bool=True,
-        model_kw: Optional[Dict]=None,
-        **kwargs
+        model_conf: Optional[dict]=None,
+        base_conf: Optional[dict]=None,
     ):
-        BaseModule.__init__(self, **kwargs)
-
-        self.num_classes = num_classes
+        BaseModule.__init__(self, base_conf)
+        self.model_conf = ModelConfig(**(model_conf or {}))
+        self.num_classes = self.model_conf.num_classes
 
         # setup the backbone model
-        self.setup_backbone(model_name, num_classes, pretrained, **model_kw)
+        self.setup_backbone()
 
         # setup for finetuning
-        if pretrained:
+        if self.model_conf.pretrained:
             self.finetune_list = get_pretrained_submodules(self.backbone)
 
+        # setup any additional model components
         self.setup_model()
 
         # loss function
@@ -202,11 +236,17 @@ class ImageClassifier(BaseModule):
         # metrics
         self.setup_metrics()
 
-    def setup_backbone(self, model_name: str, pretrained: bool, **model_kw):
+    def setup_backbone(self):
         '''Create the backbone model.'''
         model_kw = model_kw or {}
         model_kw['num_classes'] = self.num_classes
-        self.backbone = get_backbone(model_name, pretrained, **model_kw)
+        conf = self.model_conf
+        pt = conf.pretrained if isinstance(conf.pretrained, bool) else False
+        self.backbone = get_backbone(conf.model_name, pt, **conf.model_kw)
+        if isinstance(conf.pretrained, str):
+            # load weights from checkpoint file 
+            state = torch.load(conf.pretrained, map_location='cpu')['state_dict']
+            self.backbone.load_state_dict(state, strict=False)
 
     def setup_model():
         '''Create any additional model components beyond the backbone.'''
