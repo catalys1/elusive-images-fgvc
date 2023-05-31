@@ -194,21 +194,30 @@ class ImageClassifier(BaseModule):
         if pretrained:
             self.finetune_list = get_pretrained_submodules(self.backbone)
 
+        self.setup_model()
+
         # loss function
         self.setup_objective()
 
         # metrics
         self.setup_metrics()
 
-    def setup_backbone(self, model_name, pretrained, **model_kw):
+    def setup_backbone(self, model_name: str, pretrained: bool, **model_kw):
+        '''Create the backbone model.'''
         model_kw = model_kw or {}
         model_kw['num_classes'] = self.num_classes
         self.backbone = get_backbone(model_name, pretrained, **model_kw)
 
+    def setup_model():
+        '''Create any additional model components beyond the backbone.'''
+        pass
+
     def setup_objective(self):
+        '''Create the objective function.'''
         self.objective = objectives.CrossEntropyLoss()
 
     def setup_metrics(self):
+        '''Create any metrics for logging.'''
         self.train_accuracy = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
         self.val_accuracy = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
 
