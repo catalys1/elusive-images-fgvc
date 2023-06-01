@@ -53,3 +53,13 @@ python run.py fit \
     -c src/configs/model/resnet50.yaml \
     -c src/configs/data/cub.yaml
 ```
+
+#### Backbones
+
+We're using ResNet-50 and ViT-Base-16-224 as backbone feature extractors.
+To standardize comparison, we use models pretrained on ImageNet-21k under the same settings,
+available through [this repository](https://github.com/Alibaba-MIIL/ImageNet21K#1-pretrained-models--on-imagenet-21k-p-dataset).
+
+**ResNet-50**: the weights need to be manually [downloaded](https://miil-public-eu.oss-eu-central-1.aliyuncs.com/model-zoo/ImageNet_21K_P/models/resnet50_miil_21k.pth).
+
+**ViT**: the weights can be downloaded and used through `timm` as `timm.create_model('vit_base_patch16_224_miil_in21k', pretrained=True)`
