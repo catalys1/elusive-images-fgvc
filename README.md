@@ -12,7 +12,7 @@ Create conda environment:
 ```bash
 # recommend using mamba
 conda install mamba
-mamba create -n hp --file conda-env.txt
+mamba env create -f env.yaml
 
 conda activate hp
 ```
