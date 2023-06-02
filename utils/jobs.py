@@ -150,7 +150,7 @@ def sync_cluster_and_config(config, cluster_kw, conf_key, cluster_key, prefer='c
 def _make_run_dir(log_dir, log_subdir=None, slurm=False):
     subdir = log_subdir or ''
     log_dir = log_dir or os.path.join(os.environ['WORKDIR'], 'logs', subdir)
-    run_dir = dedup_path(next_run_path(log_dir))
+    run_dir = dedup_path(next_run_path(os.path.join(log_dir, subdir)))
     os.makedirs(run_dir, exist_ok=False)  # should be a new run dir
     if slurm:
         os.makedirs(os.path.join(run_dir, 'slurm'))  # for slurm logs
@@ -216,7 +216,7 @@ def setup_run_for_local(config, log_dir, log_subdir=None, with_wandb=True):
     '''Sets up a run for local execution, without a job submission script.
     '''
     # create the run log directory
-    run_dir = _make_run_dir(log_dir, log_subdir, slurm=True)
+    run_dir = _make_run_dir(log_dir, log_subdir, slurm=False)
 
     # update config with paths
     # log and checkpoint paths should be defined relative to trainer.default_root_dir using
@@ -250,3 +250,21 @@ def launch_slurm_jobs(job_file_list, sleep_time=None):
         # possibly sleep so as not to overrun the scheduler
         if sleep_time is not None:
             time.sleep(sleep_time)
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('config', nargs='+', type=str)
+    parser.add_argument('-d', '--log_dir', type=str, default='logs')
+    parser.add_argument('-s', '--log_subdir', type=str, default='__tests')
+    parser.add_argument('-w', '--with_wandb', type=argparse.BooleanOptionalAction, default=False)
+    args = parser.parse_args()
+
+    import sys
+    sys.path.append('.')
+    import configs
+
+    args.config = configs.combine_from_files(*args.config)
+
+    setup_run_for_local(**args.__dict__)
