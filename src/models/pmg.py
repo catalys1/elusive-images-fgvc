@@ -80,13 +80,10 @@ class PMG(ImageClassifier):
         base_conf: Optional[dict]=None,
         model_conf: Optional[dict]=None,
     ):
-        # enable manual optimization, since PMG performs multiple forward/backward passes per batch
-        self.automatic_optimization = False
-
         self.feature_size = feature_size
 
         # PMG uses features extracted from multiple stages of the network
-        model_conf['model_kw'] = model_conf['model_kw'] or {}
+        model_conf['model_kw'] = model_conf.get('model_kw', {})
         model_conf['model_kw'].update(
             features_only=True,
             out_indices=(2, 3, 4),  # last 3 stages of the ResNet backbone
@@ -94,6 +91,9 @@ class PMG(ImageClassifier):
 
         # parent class initialization
         ImageClassifier.__init__(self, base_conf=base_conf, model_conf=model_conf)
+
+        # enable manual optimization, since PMG performs multiple forward/backward passes per batch
+        self.automatic_optimization = False
     
     def setup_model(self):
         with torch.no_grad():
@@ -173,7 +173,7 @@ class PMG(ImageClassifier):
             v = self(js, level=i)
             loss = self.objective(v, y)
             opt.zero_grad()
-            self.manual_backward(loss, opt)
+            self.manual_backward(loss)
             opt.step()
             losses.append(loss.detach())
 
