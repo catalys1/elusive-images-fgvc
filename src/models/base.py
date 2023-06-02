@@ -7,8 +7,6 @@ from pytorch_lightning.utilities.types import STEP_OUTPUT
 import timm
 import torch
 import torchmetrics
-import torchvision
-import fgvcdata
 
 from . import objectives
 
@@ -97,9 +95,6 @@ class BaseConfig:
         warmup (float): percentage of training steps during which the learning rate is warmed up
             to its max value.
         optim_kw (Optional[Dict]): additional keyword arguments passed to the optimizer.
-        preproc (Optional[str]): keyword indicating preprocessing to be applied to each batch after
-            GPU transfer and before the forward pass (Default: None).
-            Options: "norm_in1k", "norm_in21k".
     '''
     def __init__(
         self,
@@ -110,7 +105,6 @@ class BaseConfig:
         weight_decay: float=0.0,
         warmup: float=0.0,
         optim_kw: Optional[Dict]=None,
-        preproc: Optional[str]=None,
     ):
         self.optimizer_name = optimizer_name
         self.optim_kw = optim_kw or {}
@@ -121,14 +115,6 @@ class BaseConfig:
         self.base_lr = base_lr
         self.lr_scale = lr_scale
         self.finetune_lr_scale = finetune_lr_scale
-
-        supported_preproc = ('norm_in1k', 'norm_in21k')
-        if preproc not in supported_preproc:
-            raise RuntimeError(
-                f'"{preproc}" is not a supported preprocessing argument. '
-                f'Available options are {str(supported_preproc)}'
-            )
-        self.preproc = preproc
 
 
 class BaseModule(pl.LightningModule):
@@ -170,13 +156,6 @@ class BaseModule(pl.LightningModule):
         }
 
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
-
-    def on_after_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
-        if self.base_conf.preproc == 'norm_in1k':
-            batch[0] = torchvision.transforms.functional.normalize(batch[0].float().div_(255), *fgvcdata.IMAGENET_STATS)
-        elif self.base_conf.preproc == 'norm_in21k':
-            batch[0] = batch[0].float().div_(255)
-        return batch
 
 
 class ModelConfig:
@@ -238,7 +217,7 @@ class ImageClassifier(BaseModule):
 
     def setup_backbone(self):
         '''Create the backbone model.'''
-        model_kw = model_kw or {}
+        model_kw = self.model_conf.model_kw or {}
         model_kw['num_classes'] = self.num_classes
         conf = self.model_conf
         pt = conf.pretrained if isinstance(conf.pretrained, bool) else False
