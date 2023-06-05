@@ -18,6 +18,18 @@ __all__ = [
 # Internal Modules
 ################################################################################
 
+class Classifier(torch.nn.Module):
+    """
+    Backbone Top-K ViT Classifier for SAC.
+    """
+
 ################################################################################
 # Lightning Module for SAC
 ################################################################################
+
+class SAC(ImageClassifier):
+    """
+    Self Assessment Classifier
+    """
+
+    
