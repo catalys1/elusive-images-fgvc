@@ -257,15 +257,14 @@ class SIMTrans(ImageClassifier):
         base_conf: Optional[dict]=None,
         model_conf: Optional[dict]=None,
     ):
-        # update settings for backbone
-        model_conf = model_conf or {}
-        model_conf['model_kw'] = model_conf.get('model_kw', {})
-        model_conf['model_kw'].update(
-            global_pool='',
-        )
-
         # parent class initialization
         ImageClassifier.__init__(self, base_conf=base_conf, model_conf=model_conf)
+
+    def inject_backbone_args(self):
+        self.model_conf.model_kw.update(
+            global_pool='',
+            embed_layer=OverlapPatchEmbedding,
+        )
 
     def setup_model(self):
         hidden_size = self.backbone.embed_dim
