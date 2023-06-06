@@ -80,6 +80,12 @@ def get_optimizer(optim_name):
     return getattr(torch.optim, optim_name)
 
 
+def get_gpu_memory_usage():
+    avail, total = torch.cuda.mem_get_info()
+    mem_used = 100 * (1 - (avail / total))
+    return f'GPU memory used: {(total - avail) / 1024**3:.2f} of {total / 1024**3:.2f} GB ({mem_used:.2f}%)'
+
+
 class BaseConfig:
     '''BaseModule configuration.
 
@@ -135,6 +141,10 @@ class BaseModule(pl.LightningModule):
 
         # scaling could come from linear scaling rule based on batch size
         self.lr = self.base_conf.base_lr * self.base_conf.lr_scale
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        if self.global_step == 1:
+            self.print(get_gpu_memory_usage())
 
     def configure_optimizers(self) -> Any:
         finetune_lr_scale, weight_decay = self.base_conf.finetune_lr_scale, self.base_conf.weight_decay
