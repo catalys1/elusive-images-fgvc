@@ -240,8 +240,15 @@ class OverlapPatchEmbedding(torch.nn.Module):
         flatten: bool=True,
         bias: bool=True,
     ):
+        super().__init__()
+        img_size = timm.layers.helpers.to_2tuple(img_size)
+        patch_size = timm.layers.helpers.to_2tuple(patch_size)
+
+        (h, w), (ph, pw) = img_size, patch_size
+        self.grid_size = (int((h - ph) / stride + 1), int((w - pw) / stride + 1))
+        self.num_patches = self.grid_size[0] * self.grid_size[1]
+
         self.proj = torch.nn.Conv2d(in_chans, embed_dim, patch_size, stride, bias=bias)
-        self.num_patches = int((img_size - patch_size) / stride + 1)
         self.flatten = flatten
 
     def forward(self, x: torch.Tensor):
