@@ -200,6 +200,7 @@ class ImageClassifier(BaseModule):
         self.num_classes = self.model_conf.num_classes
 
         # setup the backbone model
+        self.inject_backbone_args()
         self.setup_backbone()
 
         # setup for finetuning
@@ -214,6 +215,10 @@ class ImageClassifier(BaseModule):
 
         # metrics
         self.setup_metrics()
+
+    def inject_backbone_args(self):
+        '''Add method-specific settings to the model config before creating the backbone.'''
+        pass
 
     def setup_backbone(self):
         '''Create the backbone model.'''
