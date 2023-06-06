@@ -16,7 +16,6 @@ from .base import ImageClassifier
 ACT2FN = {
     'gelu': torch.nn.functional.gelu,
     'relu': torch.nn.functional.relu,
-    # 'swish': torch.nn.functional.silu,
 }
 
 
@@ -74,7 +73,7 @@ class GCN(torch.nn.Module):
 
 class ExtractableAttention(timm.models.vision_transformer.Attention):
     '''Slight modification to the original attention layer forward pass to save the attention weights so they
-    can be retrieved later. In order to get the attention weights, we can't use pytorch fused attention operator.
+    can be retrieved later. Also, in order to get the attention weights, we can't use pytorch fused attention operator.
     '''
     def forward(self, x):
         B, N, C = x.shape
@@ -97,25 +96,6 @@ class ExtractableAttention(timm.models.vision_transformer.Attention):
         return x
 
 
-class PartAttention(torch.nn.Module):
-    def forward(self, x):
-        length = len(x)
-        last_map = x[0]
-        for i in range(1, length):
-            last_map = torch.matmul(x[i], last_map)
-
-        # attention between CLS token and all other tokens
-        last_map = last_map[:, :, 0, 1:]
-        max_value, max_idx = last_map.max(2)
-
-        B, C, num_patch = last_map.shape
-
-        H = int(num_patch**0.5)
-        attention_map = last_map.view(B, C, H, H)
-
-        return last_map, max_idx, max_value, attention_map
-
-
 class RelativeCoordPredictor(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -133,13 +113,10 @@ class RelativeCoordPredictor(torch.nn.Module):
 
         masked_x = x * binary_mask[:, None]
         masked_x = masked_x.view(N, C, HW).transpose(1, 2).contiguous()  # (N, S, C)
-        # _, reduced_x_max_index = torch.max(torch.mean(masked_x, dim=-1), dim=-1)
         reduced_x_max_index = masked_x.mean(dim=-1).argmax(dim=-1)
 
-        # basic_index = torch.from_numpy(np.array([i for i in range(N)])).cuda()
         index = torch.arange(N, device=x.device)
 
-        # basic_label = torch.from_numpy(self.build_basic_label(size)).float()
         label = self.build_basic_label(size, x.device)
 
         # Build Label
@@ -172,7 +149,8 @@ class RelativeCoordPredictor(torch.nn.Module):
 
 class PartStructureLayer(torch.nn.Module):
     '''Part structure layer. Implements Structure Information Learning from the paper
-    (see Section 3.2).
+    (see Section 3.2). Replaces the Part_Structure class from the original implementation,
+    and incorporates the modifications they made to the Transformer forward pass.
 
     Args:
         layer (torch.nn.Module): attention layer (timm.models.vision_transformer.Attention).
@@ -182,11 +160,11 @@ class PartStructureLayer(torch.nn.Module):
         super().__init__()
 
         self.layer = layer
-        self.part_select = PartAttention()
         self.relative_coord_predictor = RelativeCoordPredictor()
         self.gcn = GCN(2, 512, hidden_size, dropout=0.1)
 
     def part_attention(self, attn):
+        '''Replaces the Part_Attention class from the original code.'''
         # attention between CLS token and all other tokens
         attn = attn[:, :, 0, 1:]
         max_value, max_idx = attn.max(2)
@@ -297,38 +275,64 @@ class SIMTrans(ImageClassifier):
         last_hidden_state = self.backbone.forward_features(x)
 
         # normalize and concatenate the CLS tokens from last three layers
-        # NOTE: the last layer has already been normalized
-        toks = []
+        cls_toks = []
         for i in range(-3, 0):
             layer = self.backbone.blocks[i].attn
             if i < -1:
                 cls_tok = self.backbone.norm(layer.cls_token)
-                toks.append(cls_tok)
+                cls_toks.append(cls_tok)
             layer.cls_token = None
-        toks.append(last_hidden_state[:, 0])
-        toks = torch.cat(toks, -1)
+        # NOTE: the last layer has already been normalized
+        cls_toks.append(last_hidden_state[:, 0])
+        cls_toks = torch.cat(cls_toks, -1)
 
-        logits = self.head(toks)
+        logits = self.head(cls_toks)
 
-        return logits
+        return logits, last_hidden_state
 
-    def step(self, batch, accuracy_metric):
+    def contrastive_loss(self, features: torch.Tensor, labels: torch.Tensor):
+        margin = 0.3
+        B = features.shape[0]
+
+        pos_labels = labels.view(-1, 1).eq(labels)
+        neg_labels = ~pos_labels
+    
+        features = torch.nn.functional.normalize(features)
+        cos_matrix = features.mm(features.t())
+        scores = (1 - cos_matrix) / 2.0
+
+        mask = pos_labels.clone()
+        mask[range(B), range(B)] = False
+        positive_scores = torch.where(mask, scores, torch.zeros_like(scores[0, 0]))
+        positive_scores = positive_scores.sum(1, keepdim=True) / mask.sum(1, keepdim=True).add(1e-6)
+
+        neg_labels[(margin + positive_scores - scores) < 0] = 0
+
+        loss = pos_labels.mul(1 - cos_matrix).sum() + neg_labels.mul(1 + cos_matrix).sum()
+        loss /= (B * B)
+
+        return loss
+
+    def step(self, batch, accuracy_metric, add_contrastive=False):
         x, y = batch
-        logits = self(x)
-        ce = self.objective(logits, y)
+        logits, last_hidden_state = self(x)
+        loss = self.objective(logits, y)
+        if add_contrastive:
+            contrastive = self.contrastive_loss(last_hidden_state[:, 0], y)
+            loss = loss + contrastive
         acc = accuracy_metric(logits, y)
-        return logits, ce, acc
+        return logits, loss, acc
 
     def training_step(self, batch: Any, batch_idx: int):
-        logits, ce_loss, accuracy = self.step(batch, self.train_accuracy)
+        logits, loss, accuracy = self.step(batch, self.train_accuracy, add_contrastive=True)
 
-        self.log('train/loss', ce_loss, prog_bar=True, sync_dist=True)
+        self.log('train/loss', loss, prog_bar=True, sync_dist=True)
         self.log('train/acc', accuracy, prog_bar=True, sync_dist=True)
 
-        return {'loss': ce_loss, 'pred': logits}
+        return {'loss': loss, 'pred': logits}
 
     def validation_step(self, batch: Any, batch_idx: int):
-        logits, ce_loss, accuracy = self.step(batch, self.val_accuracy)
+        logits, ce_loss, accuracy = self.step(batch, self.val_accuracy, add_contrastive=False)
 
         self.log('val/loss', ce_loss, prog_bar=True, sync_dist=True)
         self.log('val/acc', accuracy, prog_bar=True, sync_dist=True)
