@@ -9,7 +9,7 @@ from typing import Optional
 
 import torch
 
-from .base import ImageClassifier, get_backbone
+from .base import ImageClassifier
 
 
 __all__ = [
@@ -50,18 +50,6 @@ class ConvBlock(torch.nn.Module):
         x = self.act(self.bn1(self.conv1(x)))
         x = self.act(self.bn2(self.conv2(x)))
         return x
-
-
-def forward_func(self, x):
-    x = self.conv1(x)
-    x = self.bn1(x)
-    x = self.relu(x)
-    x1 = self.maxpool(x)
-    x2 = self.layer1(x1)
-    x3 = self.layer2(x2)
-    x4 = self.layer3(x3)
-    x5 = self.layer4(x4)
-    return x3, x4, x5
 
 
 ################################################################################
@@ -146,7 +134,7 @@ class PMG(ImageClassifier):
         return ys
 
     @staticmethod
-    def jigsaw_generator(images, n):
+    def jigsaw_generator(images: torch.Tensor, n: int):
         b, c, h, w = images.shape
         hn, wn = h//n, w//n
         s1 = [b, c, n, hn, n, wn]
