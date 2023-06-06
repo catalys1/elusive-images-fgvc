@@ -178,7 +178,7 @@ class ModelConfig:
         self.model_name = model_name
         self.num_classes = num_classes
         self.pretrained = pretrained
-        self.model_kw = model_kw
+        self.model_kw = model_kw or {}
 
 
 class ImageClassifier(BaseModule):
