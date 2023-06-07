@@ -18,15 +18,14 @@ def get_backbone(name, pretrained=True, **kwargs):
     return model
 
 
-def get_pretrained_submodules(model):
+def get_pretrained_submodules(model, prefix=''):
     '''Given a model with pretrained weights, returns a list of submodules that contain
     pretrained parameters; this is likely everything except the final classification
     layer.
     '''
-    submods = [name for name, _ in model.named_children()]
-    # this currently assumes that submods[-1] is the classifier head, and all other
-    # submodules are pretrained, which might not be true in all cases
-    return submods[:-1]
+    # this assumes that the only untrained parameters are in a module named "head"
+    submods = [''.join((prefix, name)) for name, _ in model.named_children() if name != 'head']
+    return submods
 
 
 def make_parameter_groups(
@@ -42,10 +41,12 @@ def make_parameter_groups(
     '''
     finetune_list = set(finetune_list) or []
 
+    assignments = []
+
     # initialize parameter groups for scratch and finetune parameters, with or without weight decay
     param_groups = {}
     for key in ('scratch', 'finetune'):
-        lr = base_lr * (1 if key == 'finetune' else finetune_lr_scale)
+        lr = base_lr * (1 if key == 'scratch' else finetune_lr_scale)
         param_groups[key] = {
             'decay': {'params': [], 'weight_decay': weight_decay, 'lr': lr},
             'no_decay': {'params': [], 'weight_decay': 0.0, 'lr': lr},
@@ -65,6 +66,7 @@ def make_parameter_groups(
             if norm or pname.endswith('.bias'):
                 key2 = 'no_decay'
             param_groups[key1][key2]['params'].append(param)
+            assignments.append(('.'.join((name, pname)), key1, key2))
         # recurse to child modules, inheriting finetuning flag
         for n, m in module.named_children():
             _divy('.'.join((name, n)), m, finetune)
@@ -73,7 +75,10 @@ def make_parameter_groups(
         _divy(name, module)
 
     # flatten into a list of param_group dicts
-    return [v for g1 in param_groups.values() for v in g1.values()]
+    return (
+        [v for g1 in param_groups.values() for v in g1.values()],
+        assignments,
+    )
 
 
 def get_optimizer(optim_name):
@@ -151,8 +156,13 @@ class BaseModule(pl.LightningModule):
         finetuning = getattr(self, 'finetune_list', list())
 
         # create optimizer
-        param_groups = make_parameter_groups(self, self.lr, finetune_lr_scale, weight_decay, finetuning)
+        param_groups, assignments = make_parameter_groups(self, self.lr, finetune_lr_scale, weight_decay, finetuning)
         optimizer = get_optimizer(self.base_conf.optimizer_name)(param_groups, lr=self.lr, **self.base_conf.optim_kw)
+
+        if self.trainer.is_global_zero:
+            w = max(len(x[0]) for x in assignments)
+            tmp = '{{: <{}}}  {{: <{}}}  {{}}'.format(w, 8)
+            print('\n'.join(tmp.format(*x) for x in assignments))
 
         # create learning rate schedule
         scheduler = {
@@ -215,15 +225,13 @@ class ImageClassifier(BaseModule):
 
         # setup for finetuning
         if self.model_conf.pretrained:
-            self.finetune_list = get_pretrained_submodules(self.backbone)
+            self.finetune_list = get_pretrained_submodules(self.backbone, prefix='backbone.')
 
         # setup any additional model components
         self.setup_model()
 
-        # loss function
+        # setup loss function and metrics
         self.setup_objective()
-
-        # metrics
         self.setup_metrics()
 
     def inject_backbone_args(self):
@@ -259,6 +267,7 @@ class ImageClassifier(BaseModule):
         return self.backbone(x)
 
     def step(self, batch, accuracy_metric):
+        '''Things that should happen during both training and validation steps.'''
         x, y = batch
         pred = self(x)
         loss = self.objective(pred, y)
