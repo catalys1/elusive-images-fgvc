@@ -70,18 +70,18 @@ class PMG(ImageClassifier):
     ):
         self.feature_size = feature_size
 
-        # PMG uses features extracted from multiple stages of the network
-        model_conf['model_kw'] = model_conf.get('model_kw', {})
-        model_conf['model_kw'].update(
-            features_only=True,
-            out_indices=(2, 3, 4),  # last 3 stages of the ResNet backbone
-        )
-
         # parent class initialization
         ImageClassifier.__init__(self, base_conf=base_conf, model_conf=model_conf)
 
         # enable manual optimization, since PMG performs multiple forward/backward passes per batch
         self.automatic_optimization = False
+
+    def inject_backbone_args(self):
+        # PMG uses features extracted from multiple stages of the network
+        self.model_conf.model_kw.update(
+            features_only=True,
+            out_indices=(2, 3, 4),  # last 3 stages of the ResNet backbone
+        )
     
     def setup_model(self):
         with torch.no_grad():
