@@ -19,7 +19,7 @@ def ToTensor(x):
 
 
 class FGVCDataModule(BaseDataModule):
-    def __init__(self, normalize: str='in1k', normalize_on_gpu=False, **kwargs):
+    def __init__(self, normalize: str='in1k', normalize_on_gpu: bool=False, **kwargs):
         super().__init__(**kwargs)
 
         supported_norm = ('in1k', 'in21k')
@@ -34,7 +34,7 @@ class FGVCDataModule(BaseDataModule):
     def transforms(self):
         if self.normalize_on_gpu:
             # convert to tensor without normalization: uint8 [0, 255]
-            nrm = [ToTensor()]
+            nrm = [ToTensor]
         else:
             if self.normalize == 'in1k':
                 # normalize with imagenet-1k statistics
@@ -47,9 +47,9 @@ class FGVCDataModule(BaseDataModule):
                 nrm = [T.ToTensor()]
 
         train = T.Compose([
-            T.RandomResizedCrop((self.size, self.size)),
+            T.RandomResizedCrop((self.size, self.size), (0.1, 1), (0.8, 1.25)),
+            T.ColorJitter(0.25, 0.25, 0.25),
             T.RandomHorizontalFlip(0.5),
-            T.ColorJitter(.1,.1,.1),
             *nrm,
         ])
         
