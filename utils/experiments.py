@@ -16,10 +16,6 @@ else:
 
 __all__ = [
     'RunData',
-    'print_run_summary',
-    'getif',
-    'data_name',
-    'pretrain_data_name',
 ]
 
 

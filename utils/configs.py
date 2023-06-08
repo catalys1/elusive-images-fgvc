@@ -154,7 +154,7 @@ def combine_from_files(*configs, **named_configs):
     return config
 
 
-def find_config(name, root='token_noise/configs'):
+def find_config(name, root='src/configs'):
     if not name.endswith('.yaml'):
         name = f'{name}.yaml'
     
