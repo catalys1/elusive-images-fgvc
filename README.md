@@ -47,11 +47,11 @@ We need to specify at least one configuration file (containing configurations fo
 We can also combine different configuration files.
 Here's an example training ResNet-50 on CUB, using separate config files:
 ```bash
+# create the config file by merging several configs
+python utils/configs.py src/configs/trainer/test_trainer.yaml src/configs/model/resnet50.yaml src/configs/data/cub.yaml -f config.yaml
+
 # "fit" tells Lightning to run the training loop
-python run.py fit \
-    -c src/configs/trainer/test_trainer.yaml \
-    -c src/configs/model/resnet50.yaml \
-    -c src/configs/data/cub.yaml
+python run.py fit -c config.yaml
 ```
 
 #### Backbones
