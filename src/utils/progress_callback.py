@@ -3,7 +3,7 @@ import time
 import pytorch_lightning as pl
 
 
-class PrintProgressCallback(pl.callbacks.ProgressBarBase):
+class PrintProgressCallback(pl.callbacks.ProgressBar):
     def __init__(self, print_interval=20):
         super().__init__()
         self.is_enabled = True
@@ -37,11 +37,10 @@ class PrintProgressCallback(pl.callbacks.ProgressBarBase):
         self.avg_time += elapse
         self.steps += 1
 
-        batch_idx = self.train_batch_idx
         if batch_idx % self.print_interval == 1 or batch_idx == trainer.num_training_batches - 1:
             t = round(self.avg_time / self.steps, 4)
             tb = str(self.total_train_batches)
-            b = str(self.train_batch_idx).zfill(len(tb))
+            b = str(batch_idx).zfill(len(tb))
             head = 'Train epoch {}/{} (batch {}/{}):  batch_time = {}  '.format(
                 self.trainer.current_epoch + 1, self.trainer.max_epochs, b, tb, t
             )
@@ -61,7 +60,7 @@ class PrintProgressCallback(pl.callbacks.ProgressBarBase):
     def on_validation_batch_start(self, *args, **kwargs):
         self.start_time = time.time()
 
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
         elapse = time.time() - self.start_time
         self.avg_time += elapse
         self.steps += 1
@@ -69,7 +68,7 @@ class PrintProgressCallback(pl.callbacks.ProgressBarBase):
     def on_validation_epoch_end(self, trainer, pl_module):
         t = round(self.avg_time / self.steps, 4)
         head = 'Val epoch {}/{}:  batch_time = {}  '.format(
-            self.trainer.current_epoch+1, self.trainer.max_epochs, t
+            self.trainer.current_epoch + 1, self.trainer.max_epochs, t
         )
         metrics = self.get_metrics(trainer, val=True)
         out = '   '.join(f'{k} = {v}' for k, v in metrics.items())
