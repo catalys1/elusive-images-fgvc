@@ -165,3 +165,15 @@ def find_config(name, root='src/configs'):
             break
 
     return path
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('configs', nargs='+')
+    parser.add_argument('-f', '--file', type=str, default='config.yaml')
+    args = parser.parse_args()
+
+    config = combine_from_files(*args.configs)
+
+    OmegaConf.save(config, args.file)
