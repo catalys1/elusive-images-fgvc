@@ -62,4 +62,4 @@ available through [this repository](https://github.com/Alibaba-MIIL/ImageNet21K#
 
 **ResNet-50**: the weights need to be manually [downloaded](https://miil-public-eu.oss-eu-central-1.aliyuncs.com/model-zoo/ImageNet_21K_P/models/resnet50_miil_21k.pth).
 
-**ViT**: the weights can be downloaded and used through `timm` as `timm.create_model('vit_base_patch16_224_miil_in21k', pretrained=True)`
+**ViT**: the weights can be downloaded and used through `timm` as `timm.create_model('vit_base_patch16_224_miil.in21k', pretrained=True)`
