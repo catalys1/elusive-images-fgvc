@@ -5,4 +5,4 @@ data:
     batch_size: 32
     num_workers: 6
     size: 448
-    normalization: in21k
+    normalize: in21k
