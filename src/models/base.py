@@ -248,7 +248,7 @@ class ImageClassifier(BaseModule):
             # load weights from checkpoint file 
             state = torch.load(conf.pretrained, map_location='cpu')['state_dict']
             model_state = self.backbone.state_dict()
-            mismatch = [k for k in state if state[k].shape != model_state[k].shape]
+            mismatch = [k for k in state if k in model_state and state[k].shape != model_state[k].shape]
             self.backbone.load_state_dict({k: v for k, v in state.items() if k not in mismatch}, strict=False)
             print(f'Skipping mismatched parameters: {mismatch}')
 
