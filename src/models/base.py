@@ -240,17 +240,19 @@ class ImageClassifier(BaseModule):
 
     def setup_backbone(self):
         '''Create the backbone model.'''
-        model_kw = self.model_conf.model_kw or {}
-        model_kw['num_classes'] = self.num_classes
         conf = self.model_conf
+        conf.model_kw['num_classes'] = self.num_classes
         pt = conf.pretrained if isinstance(conf.pretrained, bool) else False
         self.backbone = get_backbone(conf.model_name, pt, **conf.model_kw)
         if isinstance(conf.pretrained, str):
             # load weights from checkpoint file 
             state = torch.load(conf.pretrained, map_location='cpu')['state_dict']
-            self.backbone.load_state_dict(state, strict=False)
+            model_state = self.backbone.state_dict()
+            mismatch = [k for k in state if state[k].shape != model_state[k].shape]
+            self.backbone.load_state_dict({k: v for k, v in state.items() if k not in mismatch}, strict=False)
+            print(f'Skipping mismatched parameters: {mismatch}')
 
-    def setup_model():
+    def setup_model(self):
         '''Create any additional model components beyond the backbone.'''
         pass
 
