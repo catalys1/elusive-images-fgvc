@@ -23,8 +23,9 @@ def get_pretrained_submodules(model, prefix=''):
     pretrained parameters; this is likely everything except the final classification
     layer.
     '''
-    # this assumes that the only untrained parameters are in a module named "head"
-    submods = [''.join((prefix, name)) for name, _ in model.named_children() if name != 'head']
+    # this assumes that the only untrained parameters are in modules with a name in exclude
+    exclude = ['head', 'fc']
+    submods = [''.join((prefix, name)) for name, _ in model.named_children() if name not in exclude]
     return submods
 
 
