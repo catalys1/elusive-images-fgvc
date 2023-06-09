@@ -19,7 +19,7 @@ def ToTensor(x):
 
 
 class FGVCDataModule(BaseDataModule):
-    def __init__(self, normalize: str='in1k', normalize_on_gpu: bool=False, **kwargs):
+    def __init__(self, normalize: str='in21k', normalize_on_gpu: bool=True, **kwargs):
         super().__init__(**kwargs)
 
         supported_norm = ('in1k', 'in21k')

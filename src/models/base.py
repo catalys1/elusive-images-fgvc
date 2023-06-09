@@ -110,16 +110,18 @@ class BaseConfig:
     '''
     def __init__(
         self,
-        optimizer_name: str='AdamW',
+        optimizer_name: str='SGD',
         base_lr: float=1e-3,
         lr_scale: float=1.0,
         finetune_lr_scale: float=0.1,
-        weight_decay: float=0.0,
-        warmup: float=0.0,
+        weight_decay: float=5e-4,
+        warmup: float=0.05,
         optim_kw: Optional[Dict]=None,
     ):
         self.optimizer_name = optimizer_name
         self.optim_kw = optim_kw or {}
+        if optim_kw is None and optimizer_name == 'SGD':
+            self.optim_kw['momentum'] = 0.9
 
         self.weight_decay = weight_decay
         self.warmup = warmup
