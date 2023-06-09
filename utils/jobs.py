@@ -257,7 +257,7 @@ if __name__ == '__main__':
     parser.add_argument('config', nargs='+', type=str)
     parser.add_argument('-d', '--log_dir', type=str, default='logs')
     parser.add_argument('-s', '--log_subdir', type=str, default='__tests')
-    parser.add_argument('-w', '--with_wandb', type=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument('-w', '--with_wandb', action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
 
     import sys
