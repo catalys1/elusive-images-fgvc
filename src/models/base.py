@@ -7,8 +7,6 @@ from pytorch_lightning.utilities.types import STEP_OUTPUT
 import timm
 import torch
 import torchmetrics
-import torchvision
-import fgvcdata
 
 from . import objectives
 
@@ -20,15 +18,14 @@ def get_backbone(name, pretrained=True, **kwargs):
     return model
 
 
-def get_pretrained_submodules(model):
+def get_pretrained_submodules(model, prefix=''):
     '''Given a model with pretrained weights, returns a list of submodules that contain
     pretrained parameters; this is likely everything except the final classification
     layer.
     '''
-    submods = [name for name, _ in model.named_children()]
-    # this currently assumes that submods[-1] is the classifier head, and all other
-    # submodules are pretrained, which might not be true in all cases
-    return submods[:-1]
+    # this assumes that the only untrained parameters are in a module named "head"
+    submods = [''.join((prefix, name)) for name, _ in model.named_children() if name != 'head']
+    return submods
 
 
 def make_parameter_groups(
@@ -44,10 +41,12 @@ def make_parameter_groups(
     '''
     finetune_list = set(finetune_list) or []
 
+    assignments = []
+
     # initialize parameter groups for scratch and finetune parameters, with or without weight decay
     param_groups = {}
     for key in ('scratch', 'finetune'):
-        lr = base_lr * (1 if key == 'finetune' else finetune_lr_scale)
+        lr = base_lr * (1 if key == 'scratch' else finetune_lr_scale)
         param_groups[key] = {
             'decay': {'params': [], 'weight_decay': weight_decay, 'lr': lr},
             'no_decay': {'params': [], 'weight_decay': 0.0, 'lr': lr},
@@ -67,6 +66,7 @@ def make_parameter_groups(
             if norm or pname.endswith('.bias'):
                 key2 = 'no_decay'
             param_groups[key1][key2]['params'].append(param)
+            assignments.append(('.'.join((name, pname)), key1, key2))
         # recurse to child modules, inheriting finetuning flag
         for n, m in module.named_children():
             _divy('.'.join((name, n)), m, finetune)
@@ -75,11 +75,20 @@ def make_parameter_groups(
         _divy(name, module)
 
     # flatten into a list of param_group dicts
-    return [v for g1 in param_groups.values() for v in g1.values()]
+    return (
+        [v for g1 in param_groups.values() for v in g1.values()],
+        assignments,
+    )
 
 
 def get_optimizer(optim_name):
     return getattr(torch.optim, optim_name)
+
+
+def get_gpu_memory_usage():
+    avail, total = torch.cuda.mem_get_info()
+    mem_used = 100 * (1 - (avail / total))
+    return f'GPU memory used: {(total - avail) / 1024**3:.2f} of {total / 1024**3:.2f} GB ({mem_used:.2f}%)'
 
 
 class BaseConfig:
@@ -97,9 +106,6 @@ class BaseConfig:
         warmup (float): percentage of training steps during which the learning rate is warmed up
             to its max value.
         optim_kw (Optional[Dict]): additional keyword arguments passed to the optimizer.
-        preproc (Optional[str]): keyword indicating preprocessing to be applied to each batch after
-            GPU transfer and before the forward pass (Default: None).
-            Options: "norm_in1k", "norm_in21k".
     '''
     def __init__(
         self,
@@ -110,7 +116,6 @@ class BaseConfig:
         weight_decay: float=0.0,
         warmup: float=0.0,
         optim_kw: Optional[Dict]=None,
-        preproc: Optional[str]=None,
     ):
         self.optimizer_name = optimizer_name
         self.optim_kw = optim_kw or {}
@@ -121,14 +126,6 @@ class BaseConfig:
         self.base_lr = base_lr
         self.lr_scale = lr_scale
         self.finetune_lr_scale = finetune_lr_scale
-
-        supported_preproc = ('norm_in1k', 'norm_in21k')
-        if preproc not in supported_preproc:
-            raise RuntimeError(
-                f'"{preproc}" is not a supported preprocessing argument. '
-                f'Available options are {str(supported_preproc)}'
-            )
-        self.preproc = preproc
 
 
 class BaseModule(pl.LightningModule):
@@ -150,13 +147,22 @@ class BaseModule(pl.LightningModule):
         # scaling could come from linear scaling rule based on batch size
         self.lr = self.base_conf.base_lr * self.base_conf.lr_scale
 
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        if self.global_step == 1:
+            self.print(get_gpu_memory_usage())
+
     def configure_optimizers(self) -> Any:
         finetune_lr_scale, weight_decay = self.base_conf.finetune_lr_scale, self.base_conf.weight_decay
         finetuning = getattr(self, 'finetune_list', list())
 
         # create optimizer
-        param_groups = make_parameter_groups(self, self.lr, finetune_lr_scale, weight_decay, finetuning)
+        param_groups, assignments = make_parameter_groups(self, self.lr, finetune_lr_scale, weight_decay, finetuning)
         optimizer = get_optimizer(self.base_conf.optimizer_name)(param_groups, lr=self.lr, **self.base_conf.optim_kw)
+
+        if self.trainer.is_global_zero:
+            w = max(len(x[0]) for x in assignments)
+            tmp = '{{: <{}}}  {{: <{}}}  {{}}'.format(w, 8)
+            print('\n'.join(tmp.format(*x) for x in assignments))
 
         # create learning rate schedule
         scheduler = {
@@ -170,13 +176,6 @@ class BaseModule(pl.LightningModule):
         }
 
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
-
-    def on_after_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
-        if self.base_conf.preproc == 'norm_in1k':
-            batch[0] = torchvision.transforms.functional.normalize(batch[0].float().div_(255), *fgvcdata.IMAGENET_STATS)
-        elif self.base_conf.preproc == 'norm_in21k':
-            batch[0] = batch[0].float().div_(255)
-        return batch
 
 
 class ModelConfig:
@@ -199,7 +198,7 @@ class ModelConfig:
         self.model_name = model_name
         self.num_classes = num_classes
         self.pretrained = pretrained
-        self.model_kw = model_kw
+        self.model_kw = model_kw or {}
 
 
 class ImageClassifier(BaseModule):
@@ -221,34 +220,39 @@ class ImageClassifier(BaseModule):
         self.num_classes = self.model_conf.num_classes
 
         # setup the backbone model
+        self.inject_backbone_args()
         self.setup_backbone()
 
         # setup for finetuning
         if self.model_conf.pretrained:
-            self.finetune_list = get_pretrained_submodules(self.backbone)
+            self.finetune_list = get_pretrained_submodules(self.backbone, prefix='backbone.')
 
         # setup any additional model components
         self.setup_model()
 
-        # loss function
+        # setup loss function and metrics
         self.setup_objective()
-
-        # metrics
         self.setup_metrics()
+
+    def inject_backbone_args(self):
+        '''Add method-specific settings to the model config before creating the backbone.'''
+        pass
 
     def setup_backbone(self):
         '''Create the backbone model.'''
-        model_kw = model_kw or {}
-        model_kw['num_classes'] = self.num_classes
         conf = self.model_conf
+        conf.model_kw['num_classes'] = self.num_classes
         pt = conf.pretrained if isinstance(conf.pretrained, bool) else False
         self.backbone = get_backbone(conf.model_name, pt, **conf.model_kw)
         if isinstance(conf.pretrained, str):
             # load weights from checkpoint file 
             state = torch.load(conf.pretrained, map_location='cpu')['state_dict']
-            self.backbone.load_state_dict(state, strict=False)
+            model_state = self.backbone.state_dict()
+            mismatch = [k for k in state if k in model_state and state[k].shape != model_state[k].shape]
+            self.backbone.load_state_dict({k: v for k, v in state.items() if k not in mismatch}, strict=False)
+            print(f'Skipping mismatched parameters: {mismatch}')
 
-    def setup_model():
+    def setup_model(self):
         '''Create any additional model components beyond the backbone.'''
         pass
 
@@ -265,6 +269,7 @@ class ImageClassifier(BaseModule):
         return self.backbone(x)
 
     def step(self, batch, accuracy_metric):
+        '''Things that should happen during both training and validation steps.'''
         x, y = batch
         pred = self(x)
         loss = self.objective(pred, y)

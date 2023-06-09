@@ -3,4 +3,6 @@ data:
   init_args:
     root: ${oc.env:DATADIR}/CUB_200_2011
     batch_size: 32
-    num_workers: 4
+    num_workers: 6
+    size: 448
+    normalize: in21k

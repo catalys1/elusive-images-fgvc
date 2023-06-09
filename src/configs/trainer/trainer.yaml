@@ -11,7 +11,7 @@ trainer:
   check_val_every_n_epoch: 1
   max_epochs: 50
   log_every_n_steps: 50
-  precision: 16
+  precision: 16-mixed
   num_sanity_val_steps: 0
 
   # callbacks
@@ -23,9 +23,9 @@ trainer:
         save_weights_only: false
     - class_path: pytorch_lightning.callbacks.LearningRateMonitor
     # print training progress as text lines instead of using progress bar
-    - class_path: token_noise.utils.progress_callback.PrintProgressCallback
+    - class_path: src.utils.progress_callback.PrintProgressCallback
     # at the end of training, remove unneeded state from checkpoint files to reduce file footprint
-    - class_path: token_noise.utils.ckpt_squeeze_callback.CheckpointSqueezeCallback
+    - class_path: src.utils.ckpt_squeeze_callback.CheckpointSqueezeCallback
       init_args:
         policy: all
 
@@ -33,7 +33,7 @@ trainer:
   logger:
     - class_path: pytorch_lightning.loggers.WandbLogger
       init_args:
-        project: ${project_name}
+        project: hard-probs
         name: run-${path_seg:${.dir},-1}
         id: "???"  # needs to be replaced
         dir: ${trainer.default_root_dir}

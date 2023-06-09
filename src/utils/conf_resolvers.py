@@ -32,11 +32,11 @@ def linear_scale_factor(bs, base_bs, nodes=1, gpus_per_node=1):
     '''
     return (bs / base_bs) * nodes * gpus_per_node
 
-# @register(cache=False)
-# def num_labels(datamod_path):
-#     '''Given a datamodule class_path, returns the number of labels associated with the
-#     dataset for classification.
-#     '''
-#     from token_noise import datamodules
-#     dm = datamod_path.rsplit('.', 1)[1]
-#     return datamodules.num_labels[dm]
+@register(cache=False)
+def num_labels(datamod_path):
+    '''Given a datamodule class_path, returns the number of labels associated with the
+    dataset for classification.
+    '''
+    from src import data
+    dm = datamod_path.rsplit('.', 1)[1]
+    return getattr(data, dm).num_classes

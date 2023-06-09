@@ -9,7 +9,7 @@ from typing import Optional
 
 import torch
 
-from .base import ImageClassifier, get_backbone
+from .base import ImageClassifier
 
 
 __all__ = [
@@ -52,18 +52,6 @@ class ConvBlock(torch.nn.Module):
         return x
 
 
-def forward_func(self, x):
-    x = self.conv1(x)
-    x = self.bn1(x)
-    x = self.relu(x)
-    x1 = self.maxpool(x)
-    x2 = self.layer1(x1)
-    x3 = self.layer2(x2)
-    x4 = self.layer3(x3)
-    x5 = self.layer4(x4)
-    return x3, x4, x5
-
-
 ################################################################################
 # Lightning Module for PMG
 ################################################################################
@@ -80,20 +68,20 @@ class PMG(ImageClassifier):
         base_conf: Optional[dict]=None,
         model_conf: Optional[dict]=None,
     ):
-        # enable manual optimization, since PMG performs multiple forward/backward passes per batch
-        self.automatic_optimization = False
-
         self.feature_size = feature_size
-
-        # PMG uses features extracted from multiple stages of the network
-        model_conf['model_kw'] = model_conf['model_kw'] or {}
-        model_conf['model_kw'].update(
-            features_only=True,
-            out_indices=(2, 3, 4),  # last 3 stages of the ResNet backbone
-        )
 
         # parent class initialization
         ImageClassifier.__init__(self, base_conf=base_conf, model_conf=model_conf)
+
+        # enable manual optimization, since PMG performs multiple forward/backward passes per batch
+        self.automatic_optimization = False
+
+    def inject_backbone_args(self):
+        # PMG uses features extracted from multiple stages of the network
+        self.model_conf.model_kw.update(
+            features_only=True,
+            out_indices=(2, 3, 4),  # last 3 stages of the ResNet backbone
+        )
     
     def setup_model(self):
         with torch.no_grad():
@@ -146,7 +134,7 @@ class PMG(ImageClassifier):
         return ys
 
     @staticmethod
-    def jigsaw_generator(images, n):
+    def jigsaw_generator(images: torch.Tensor, n: int):
         b, c, h, w = images.shape
         hn, wn = h//n, w//n
         s1 = [b, c, n, hn, n, wn]
@@ -173,7 +161,7 @@ class PMG(ImageClassifier):
             v = self(js, level=i)
             loss = self.objective(v, y)
             opt.zero_grad()
-            self.manual_backward(loss, opt)
+            self.manual_backward(loss)
             opt.step()
             losses.append(loss.detach())
 
