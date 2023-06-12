@@ -63,6 +63,15 @@ def pselect(config, key):
     return matches
 
 
+def find(config, key):
+    result = pselect(config, key)
+    if len(result) == 0:
+        raise KeyError(f'No matches found for key ({key})')
+    elif len(result) > 1:
+        raise KeyError(f'Found multiple matches for key ({key}): ' + ', '.join(x[0] for x in result))
+    return result[0][1]
+
+
 def compare_configs(conf1, conf2, ignore=None, include=None):
     '''Compare two config files, and return the differences. Every leaf node in the two configs are
     compared, and the differences are returned as a list of (key, val1, val2).
