@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import sys
 
 import numpy as np
@@ -7,10 +8,10 @@ from omegaconf import OmegaConf
 
 if __name__ == '__main__':
     sys.path.append('.')
-    from configs import pselect, get_config_diffs
+    from configs import pselect, find
     from logs import *
 else:
-    from .configs import pselect, get_config_diffs
+    from .configs import pselect, find
     from .logs import *
 
 
@@ -145,6 +146,23 @@ def get_run_list(run_dir, id_range=None):
         id_range = range(low, high + 1)
     runs = [RunData(r) for r in run_paths if get_id(r) in id_range]
     return runs
+
+
+def compare(runs, keys):
+    accs = []
+    vals = []
+    for r in runs:
+        if isinstance(r, Path):
+            r = str(r)
+        rid = re.search(r'run-\d+', r).group(0)
+        log = list(Path(r).joinpath('slurm').glob('*.out'))[0].open().read()
+        config = OmegaConf.load(Path(r).joinpath('raw_run_config.yaml'))
+        val_acc = [float(x) for x in re.findall('Val epoch \d+/\d+: .*val/acc = (0\.\d+)', log)]
+        max_val = max(val_acc)
+        vs = [find(config, k) for k in keys]
+        accs.append(max_val)
+        vals.append(vs)
+        print(rid, max_val, ' '.join(str(x) for x in vs))
 
 
 if __name__ == '__main__':
