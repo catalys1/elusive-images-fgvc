@@ -1,0 +1,8 @@
+data:
+  class_path: src.data.fgvc.Aircraft
+  init_args:
+    root: ${oc.env:DATADIR}/fgvc-aircraft-2013b
+    batch_size: 32
+    num_workers: 8
+    size: 448
+    normalize: in21k
