@@ -110,6 +110,7 @@ def create_slurm_batch_file(
     if auto_resubmit:
         sbatch_opts.append(f'--signal=SIGUSR1@90')
         sbatch_opts.append(f'--requeue')
+        sbatch_opts.append(f'--open-mode=append')
     sbatch_opts = '\n'.join(f'#SBATCH {x}' for x in sbatch_opts)
     sbatch = (
         '#!/bin/bash\n'
