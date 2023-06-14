@@ -1,7 +1,12 @@
 model:
   class_path: src.models.simtrans.SIMTrans
   init_args:
+    base_conf:
+      base_lr: 1e-2
+      finetune_lr_scale: 0.1
     model_conf:
       model_name: vit_base_patch16_224_miil.in21k
       pretrained: true
       num_classes: ${num_labels:${data.class_path}}
+      model_kw:
+        img_size: ${data.init_args.size}
