@@ -160,15 +160,18 @@ def compare(runs, keys=None, time=False):
         log = list(Path(r).joinpath('slurm').glob('*.out'))[0].open().read()
         config = OmegaConf.load(Path(r).joinpath('raw_run_config.yaml'))
         val_acc = [float(x) for x in re.findall('Val epoch \d+/\d+: .*val/acc = (0\.\d+)', log)]
-        max_val = max(val_acc)
-        vs = [max_val] + [find(config, k) for k in keys]
+        max_val = max(val_acc) if val_acc else '---'
+        vs = [max_val] + [find(config, k, '---') for k in keys]
         if time:
-            vs.append(re.search(r'Total training time (.*)', log).group(1))
+            t = re.search(r'Total training time (.*)', log)
+            if t: t = t.group(1)
+            else: t = 'Running'
+            vs.append(t)
         vals.append(vs)
     
     if time:
         keys.append('Time')
-    slens = [max([len(keys[i])] + [len(str(vals[k][i])) for k in range(len(vals))]) + 2 for i in range(len(keys))]
+    slens = [max([len(keys[i])] + [len(str(v[i + 1])) for v in vals]) + 2 for i in range(len(keys))]
     row = ('{{:<{}}}' * (len(keys) + 2))
     row = row.format(8, 9, *slens)
     print(row.format('Run', 'Val acc', *keys))

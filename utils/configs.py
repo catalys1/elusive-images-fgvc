@@ -63,10 +63,22 @@ def pselect(config, key):
     return matches
 
 
-def find(config, key):
+def find(config, key, *default):
+    '''
+    Args:
+        config (config): OmegaConf configuration.
+        key (str): key to search for; can contain '*', which will match any contiguous section.
+        default (any): optional default value to return if key is not found. If omitted, a KeyError
+            is raised if key cannot be found in config.
+    '''
+    if len(default) > 1:
+        raise ValueError(f'Found {len(default)} additional arguments, but only accepts 1')
     result = pselect(config, key)
     if len(result) == 0:
-        raise KeyError(f'No matches found for key ({key})')
+        if len(default) == 0:
+            raise KeyError(f'No matches found for key ({key})')
+        else:
+            return default[0]
     elif len(result) > 1:
         raise KeyError(f'Found multiple matches for key ({key}): ' + ', '.join(x[0] for x in result))
     return result[0][1]
