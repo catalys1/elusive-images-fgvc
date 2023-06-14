@@ -12,6 +12,7 @@ from . base import BaseDataModule
 __all__ = [
     'Aircraft',
     'CUB',
+    'Fungi',
     'NABirds',
     'StanfordCars',
 ]
@@ -115,6 +116,11 @@ class Aircraft(FGVCDataModule):
 class CUB(FGVCDataModule):
     dataclass = fgvcdata.CUB
     num_classes = 200
+
+
+class Fungi(FGVCDataModule):
+    dataclass = fgvcdata.DanishFungi
+    num_classes = 183
 
 
 class NABirds(FGVCDataModule):
