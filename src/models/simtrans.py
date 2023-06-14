@@ -71,11 +71,17 @@ class GCN(torch.nn.Module):
         return x
 
 
-class ExtractableAttention(timm.models.vision_transformer.Attention):
+class ExtractableAttentionWrapper(torch.nn.Module):
     '''Slight modification to the original attention layer forward pass to save the attention weights so they
     can be retrieved later. Also, in order to get the attention weights, we can't use pytorch fused attention operator.
     '''
-    def forward(self, x):
+    def __init__(self, layer):
+        super().__init__()
+        self.layer = layer
+
+    @staticmethod
+    def forward_layer(self, x):
+        # NOTE: `self` in this case is actually `self.layer`, since this is a staticmethod and we pass in `self.layer`
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
@@ -85,7 +91,7 @@ class ExtractableAttention(timm.models.vision_transformer.Attention):
         attn = q @ k.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
         ### Added this to get access to attention weights
-        self.saved_attn_weights = attn.clone()
+        saved_attn = attn.clone()
         ###
         attn = self.attn_drop(attn)
         x = attn @ v
@@ -93,6 +99,12 @@ class ExtractableAttention(timm.models.vision_transformer.Attention):
         x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
+        # return the saved attention matrix also
+        return x, saved_attn
+
+    def forward(self, x):
+        x, saved_attn = self.forward_layer(self.layer, x)
+        self.saved_attn_weights = saved_attn
         return x
 
 
@@ -105,6 +117,7 @@ class RelativeCoordPredictor(torch.nn.Module):
         HW = H * W
         size = H
 
+        # sum attention scores over attention heads
         mask = torch.sum(x, dim=1)
 
         mask = mask.view(N, HW)
@@ -135,7 +148,8 @@ class RelativeCoordPredictor(torch.nn.Module):
 
         relative_coord_total = torch.cat((relative_dist.unsqueeze(2), relative_angle.unsqueeze(2)), dim=-1)
 
-        position_weight = masked_x.mean(dim=-1).unsqueeze(2)
+        # average over attention heads
+        position_weight = masked_x.mean(dim=-1, keepdim=True)
         position_weight = position_weight @ position_weight.transpose(1,2)
 
         return relative_coord_total, basic_anchor, position_weight, reduced_x_max_index
@@ -160,6 +174,7 @@ class PartStructureLayer(torch.nn.Module):
         super().__init__()
 
         self.layer = layer
+        self.layer.attn = ExtractableAttentionWrapper(self.layer.attn)
         self.relative_coord_predictor = RelativeCoordPredictor()
         self.gcn = GCN(2, 512, hidden_size, dropout=0.1)
 
@@ -188,9 +203,9 @@ class PartStructureLayer(torch.nn.Module):
 
     def forward(self, hidden_states):
         # ViT attention layer
-        hidden_states = ExtractableAttention.forward(self.layer, hidden_states)
-        attn_weights = self.layer.saved_attn_weights
-        self.layer.saved_attn_weights = None
+        hidden_states = self.layer(hidden_states)
+        attn_weights = self.layer.attn.saved_attn_weights
+        self.layer.attn.saved_attn_weights = None
 
         # part selection
         attn_map = self.part_attention(attn_weights)[0]
@@ -253,10 +268,10 @@ class SIMTrans(ImageClassifier):
 
     def setup_model(self):
         hidden_size = self.backbone.embed_dim
-        # wrap the last 3 attention layers with PartStructureLayer
+        # wrap the last 3 layers with PartStructureLayer
         for i in range(-3, 0):
             block = self.backbone.blocks[i]
-            block.attn = PartStructureLayer(block.attn, hidden_size)
+            self.backbone.blocks[i] = PartStructureLayer(block, hidden_size)
         
         # remove the ViT classification head
         self.backbone.head = torch.nn.Identity()
@@ -272,12 +287,13 @@ class SIMTrans(ImageClassifier):
         )
 
     def forward(self, x: torch.Tensor):
+        # breakpoint()
         last_hidden_state = self.backbone.forward_features(x)
 
         # normalize and concatenate the CLS tokens from last three layers
         cls_toks = []
         for i in range(-3, 0):
-            layer = self.backbone.blocks[i].attn
+            layer = self.backbone.blocks[i]
             if i < -1:
                 cls_tok = self.backbone.norm(layer.cls_token)
                 cls_toks.append(cls_tok)
