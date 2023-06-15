@@ -70,6 +70,32 @@ def relaunch_runs(runs_path, run_ids):
             break
 
 
+def cancel_jobs(start_jobid=None, end_jobid=None):
+    output = subprocess.run(['squeue', '--me', '-o', '%i'], capture_output=True)
+    ids = output.stdout.decode('ascii').strip().split('\n')[1:]
+    ids.sort(key=lambda x: int(x))
+
+    if start_jobid is None:
+        start_jobid = ids[0]
+    if end_jobid is None:
+        end_jobid = ids[-1]
+    start_jobid = int(start_jobid)
+    end_jobid = int(end_jobid)
+
+    ids = [x for x in ids if start_jobid <= int(x) <= end_jobid]
+
+    print('The following jobs will be canceled:')
+    print('\n'.join(f'  {x}' for x in ids))
+    while True:
+        response = input('Proceed? [N/y] ')
+        if response.lower() in ('n', ''):
+            print('Aborting')
+            break
+        elif response.lower() == 'y':
+            subprocess.run(['scancel'] + ids)
+            break
+
+
 def sync_wandb_offline_runs(wandb_root='./wandb', runs_path=None, run_ids=None):
     '''Uses `wandb sync` to sync offline runs to the wandb server.
     
@@ -130,6 +156,11 @@ if __name__ == '__main__':
     p.add_argument('--runs_path', type=str, default=None)
     p.add_argument('--run_ids', type=int, nargs='*', default=None)
     p.set_defaults(func=sync_wandb_offline_runs)
+
+    p = subparsers.add_parser('cancel')
+    p.add_argument('-s', '--start_jobid', type=int, default=None)
+    p.add_argument('-e', '--end_jobid', type=int, default=None)
+    p.set_defaults(func=cancel_jobs)
 
     args = parser.parse_args()
     args = args.__dict__

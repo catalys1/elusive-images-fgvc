@@ -8,6 +8,7 @@ Adapted from https://github.com/PRIS-CV/PMG-Progressive-Multi-Granularity-Traini
 from typing import Optional
 
 import torch
+import torchmetrics
 
 from .base import ImageClassifier
 
@@ -103,6 +104,10 @@ class PMG(ImageClassifier):
         ])
         self.classifier_concat = Classifier(3 * (channels[-1] // 2), self.feature_size, self.num_classes)
 
+    def setup_metrics(self):
+        super().setup_metrics()
+        self.val_acc_combined = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
+
     def forward(self, x, level=None):
         # level can be 0, 1, 2, 3, or None (meaning all), specifying 
         # which of the intermediate outputs to compute and return
@@ -137,14 +142,22 @@ class PMG(ImageClassifier):
     def jigsaw_generator(images: torch.Tensor, n: int):
         b, c, h, w = images.shape
         hn, wn = h//n, w//n
-        s1 = [b, c, n, hn, n, wn]
-        s2 = [b, c, n**2, hn, wn]
-        s3 = [b, c, n, n, hn, wn]
-        p = [0, 1, 2, 4, 3, 5]
+        s1 = (b, c, n, hn, n, wn)
+        s2 = (b, n, n, c, hn, wn)
+        p1 = (0, 2, 4, 1, 3, 5)
+        p2 = (0, 3, 1, 4, 2, 5)
+        # s2 = [b, c, n**2, hn, wn]
+        # s3 = [b, c, n, n, hn, wn]
+        # p = [0, 1, 2, 4, 3, 5]
 
-        idx = torch.multinomial(torch.ones(n**2, device=images.device), n**2)
-        jigsaw = images.view(s1).permute(p).reshape(s2)[:,:,idx]
-        jigsaw = jigsaw.reshape(s3).permute(p).reshape(images.shape)
+        # idx = torch.multinomial(torch.ones(n**2, device=images.device), n**2)
+        # jigsaw = images.view(s1).permute(p).reshape(s2)[:,:,idx]
+        # jigsaw = jigsaw.reshape(s3).permute(p).reshape(images.shape)
+
+        bi = torch.arange(b, device=images.device)[:, None]
+        idx = torch.multinomial(torch.ones(b, n**2, device=images.device), n**2)
+        jigsaw = images.view(s1).permute(p1).flatten(1, 2)[bi, idx]
+        jigsaw = jigsaw.reshape(s2).permute(p2).reshape(images.shape)
 
         return jigsaw.contiguous()
 
@@ -157,9 +170,14 @@ class PMG(ImageClassifier):
         ns = [8, 4, 2, 1]
         for i, n in enumerate(ns):
             n = ns[i]
-            js = self.jigsaw_generator(x, n) if n > 1 else x
+            if n > 1:
+                js = self.jigsaw_generator(x, n)
+            else:
+                js = x
             v = self(js, level=i)
             loss = self.objective(v, y)
+            if n == 1:
+                loss = loss * 2
             opt.zero_grad()
             self.manual_backward(loss)
             opt.step()
@@ -179,13 +197,16 @@ class PMG(ImageClassifier):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         outs = self(x, level=None)
+        loss = self.objective(outs[-1], y)
+        acc = self.val_accuracy(outs[-1], y)
+
         logits = sum(outs)
-        loss = self.objective(logits, y)
-        acc = self.val_accuracy(logits, y)
+        acc_comb = self.val_acc_combined(logits, y)
 
         log_kw = dict(on_step=False, on_epoch=True, sync_dist=True)
         self.log('val/loss', loss, prog_bar=True, **log_kw)
         self.log('val/acc', acc, prog_bar=True, **log_kw)
+        self.log('val/acc_comb', acc_comb, prog_bar=True, **log_kw)
         
     def test_step(self, batch, batch_idx):
         x, y = batch

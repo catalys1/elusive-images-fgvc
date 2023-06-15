@@ -1,5 +1,6 @@
 '''
 '''
+import os
 from typing import Any, Dict, List, Optional, Union
 
 import pytorch_lightning as pl
@@ -11,11 +12,33 @@ import torchmetrics
 from . import objectives
 
 
-def get_backbone(name, pretrained=True, **kwargs):
+def get_timm_model(name, pretrained=True, **kwargs):
     '''Create a model from the timm library.
     '''
     model = timm.create_model(name, pretrained, **kwargs)
     return model
+
+
+def get_torchvision_model(name, pretrained=True, **kwargs):
+    '''Create a model from the torchvision library.
+    '''
+    import torchvision
+    num_classes = kwargs.pop('num_classes')
+    if 'weights' not in kwargs:
+        if pretrained == False: kwargs['weights'] = None
+        elif pretrained == True: kwargs['weights'] = 'DEFAULT'
+    model = getattr(torchvision.models, name)(**kwargs)
+    model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+    return model
+
+
+def get_backbone(library, name, pretrained=True, **kwargs):
+    if library == 'timm':
+        return get_timm_model(name, pretrained, **kwargs)
+    elif library == 'torchvision':
+        return get_torchvision_model(name, pretrained, **kwargs)
+    else:
+        raise RuntimeError(f'Unsupported model library ({library})')
 
 
 def get_pretrained_submodules(model, prefix=''):
@@ -23,8 +46,9 @@ def get_pretrained_submodules(model, prefix=''):
     pretrained parameters; this is likely everything except the final classification
     layer.
     '''
-    # this assumes that the only untrained parameters are in a module named "head"
-    submods = [''.join((prefix, name)) for name, _ in model.named_children() if name != 'head']
+    # this assumes that the only untrained parameters are in modules with a name in exclude
+    exclude = ['head', 'fc']
+    submods = [''.join((prefix, name)) for name, _ in model.named_children() if name not in exclude]
     return submods
 
 
@@ -63,7 +87,7 @@ def make_parameter_groups(
         # add module's direct parameters
         for pname, param in module.named_parameters(recurse=False):
             key2 = 'decay'
-            if norm or pname.endswith('.bias'):
+            if norm or pname.endswith('bias'):
                 key2 = 'no_decay'
             param_groups[key1][key2]['params'].append(param)
             assignments.append(('.'.join((name, pname)), key1, key2))
@@ -109,16 +133,18 @@ class BaseConfig:
     '''
     def __init__(
         self,
-        optimizer_name: str='AdamW',
+        optimizer_name: str='SGD',
         base_lr: float=1e-3,
         lr_scale: float=1.0,
         finetune_lr_scale: float=0.1,
-        weight_decay: float=0.0,
-        warmup: float=0.0,
+        weight_decay: float=5e-4,
+        warmup: float=0.05,
         optim_kw: Optional[Dict]=None,
     ):
         self.optimizer_name = optimizer_name
         self.optim_kw = optim_kw or {}
+        if optim_kw is None and optimizer_name == 'SGD':
+            self.optim_kw['momentum'] = 0.9
 
         self.weight_decay = weight_decay
         self.warmup = warmup
@@ -171,6 +197,7 @@ class BaseModule(pl.LightningModule):
                 max_lr=[g['lr'] for g in param_groups],
                 total_steps=self.trainer.estimated_stepping_batches,
                 pct_start=self.base_conf.warmup,
+                cycle_momentum=False,
             ),
             'interval': 'step',
         }
@@ -194,11 +221,13 @@ class ModelConfig:
         num_classes: int,
         pretrained: Union[str, bool]=True,
         model_kw: Optional[Dict]=None,
+        library: str='timm',
     ):
         self.model_name = model_name
         self.num_classes = num_classes
         self.pretrained = pretrained
         self.model_kw = model_kw or {}
+        self.library = library
 
 
 class ImageClassifier(BaseModule):
@@ -243,7 +272,7 @@ class ImageClassifier(BaseModule):
         conf = self.model_conf
         conf.model_kw['num_classes'] = self.num_classes
         pt = conf.pretrained if isinstance(conf.pretrained, bool) else False
-        self.backbone = get_backbone(conf.model_name, pt, **conf.model_kw)
+        self.backbone = get_backbone(conf.library, conf.model_name, pt, **conf.model_kw)
         if isinstance(conf.pretrained, str):
             # load weights from checkpoint file 
             state = torch.load(conf.pretrained, map_location='cpu')['state_dict']

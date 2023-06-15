@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import sys
 
 import numpy as np
@@ -7,10 +8,10 @@ from omegaconf import OmegaConf
 
 if __name__ == '__main__':
     sys.path.append('.')
-    from configs import pselect, get_config_diffs
+    from configs import pselect, find
     from logs import *
 else:
-    from .configs import pselect, get_config_diffs
+    from .configs import pselect, find
     from .logs import *
 
 
@@ -133,7 +134,7 @@ def getif(x):
     return None
 
 
-def get_run_list(run_dir, id_range=None):
+def get_run_list(run_dir, id_range=None, return_type='path'):
     def get_id(path: Path):
         return int(path.name[len('run-'):])
 
@@ -143,23 +144,49 @@ def get_run_list(run_dir, id_range=None):
     if isinstance(id_range, str):
         low, high = map(int, id_range.split('-'))
         id_range = range(low, high + 1)
-    runs = [RunData(r) for r in run_paths if get_id(r) in id_range]
+    if return_type == 'rundata':
+        runs = [RunData(r) for r in run_paths if get_id(r) in id_range]
+    elif return_type == 'path':
+        runs = [r for r in run_paths if get_id(r) in id_range]
     return runs
+
+
+def compare(runs, keys=None, time=False):
+    keys = keys or []
+    vals = []
+    for r in runs:
+        if isinstance(r, Path):
+            r = str(r)
+        log = list(Path(r).joinpath('slurm').glob('*.out'))[0].open().read()
+        config = OmegaConf.load(Path(r).joinpath('raw_run_config.yaml'))
+        val_acc = [float(x) for x in re.findall('Val epoch \d+/\d+: .*val/acc = (0\.\d+)', log)]
+        max_val = max(val_acc) if val_acc else '---'
+        vs = [max_val] + [find(config, k, '---') for k in keys]
+        if time:
+            t = re.search(r'Total training time (.*)', log)
+            if t: t = t.group(1)
+            else: t = 'Running'
+            vs.append(t)
+        vals.append(vs)
+    
+    if time:
+        keys.append('Time')
+    slens = [max([len(keys[i])] + [len(str(v[i + 1])) for v in vals]) + 2 for i in range(len(keys))]
+    row = ('{{:<{}}}' * (len(keys) + 2))
+    row = row.format(8, 9, *slens)
+    print(row.format('Run', 'Val acc', *keys))
+    for run, vs in zip(runs, vals):
+        s = row.format(run.name, *[str(x) for x in vs])
+        print(s)
 
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('run_dir')
-    parser.add_argument('-i', '--ignore', nargs='*', default='default')
-    parser.add_argument('-m', '--metrics', nargs='*', default=None)
-    parser.add_argument('-k', '--key-len', type=int, default=None)
-    parser.add_argument('--include', nargs='*', default=None)
-    parser.add_argument('-r', '--range', type=str, default=None)
+    parser.add_argument('run_dir', type=str)
+    parser.add_argument('-k', '--keys', nargs='*', default=None)
+    parser.add_argument('--time', action=argparse.BooleanOptionalAction, default=True)
 
     args = parser.parse_args()
-
-    if args.range is not None:
-        runs = get_run_list(args.run_dir, args.range)
-    else:
-        runs = args.run_dir
+    runs = get_run_list(args.run_dir)
+    compare(runs, args.keys, args.time)
