@@ -4,10 +4,18 @@ from typing import Optional
 import timm
 # adapted from https://github.com/Markin-Wang/FFVT/tree/main 
 
+# TO RUN: 
+# create the config file by merging several configs
+# python utils/configs.py src/configs/trainer/test_trainer.yaml src/configs/models/resnet50.yaml src/configs/data/cub.yaml -f config.yaml
+# "fit" tells Lightning to run the training loop
+# srun python run.py fit -c config.yaml
+# conda activate hp
+# salloc -N 1 -n 8 --gpus 2 --mem 32G --time 0:30:00 --qos cs
+
 # linear, crossentropyloss, dropout, softmax, conv2d, layernorm are imported models
 # also resnet (?)
 NUM_LAYERS = 1 # 12
-HIDDEN_SIZE = 1 # 768
+HIDDEN_SIZE = 8 # 768
 DROP_RATE = 0.1 # 0.0
 MLP_DIM = 1 # 3072
 
@@ -42,8 +50,8 @@ class newAttention(timm.models.vision_transformer.Attention):
 class MLP(torch.nn.Module):
     def __init__(self):
         super(MLP, self).__init__()
-        self.fc1 = torch.nnLinear(HIDDEN_SIZE, MLP_DIM)
-        self.fc2 = torch.nnLinear(HIDDEN_SIZE, MLP_DIM)
+        self.fc1 = torch.nn.Linear(HIDDEN_SIZE, MLP_DIM)
+        self.fc2 = torch.nn.Linear(HIDDEN_SIZE, MLP_DIM)
         self.act_fn = torch.nn.functional.gelu
         self.dropout = torch.nn.Dropout(DROP_RATE)
 
@@ -69,7 +77,7 @@ class Block(torch.nn.Module):
         self.attentnorm = torch.nn.LayerNorm(HIDDEN_SIZE,eps=1e-6)
         self.ffnorm = torch.nn.LayerNorm(HIDDEN_SIZE,eps=1e-6)
         self.mLP = MLP()
-        self.attn = newAttention()
+        self.attn = newAttention(HIDDEN_SIZE) # hidden_size = dim param
         return
     def forward(self, x):
         actualx = x
@@ -107,7 +115,8 @@ class Transformer(torch.nn.Module):
             num,inx = self.maws(weight,cont)
             for i in range(inx.shape[0]):
                 tokens[i].extend(embed[i,inx[i,:num]])
-
+        print(tokens.size())
+        # TODO: is tokens empty or no??
         # more feature fusion
         tokens=[torch.stack(token) for token in tokens]
         tokens = torch.stack(tokens).squeeze(1)
@@ -135,7 +144,7 @@ class FFVT(ImageClassifier):
         self,
         feature_size: int=512,
         base_conf: Optional[dict]=None,
-        model_conf: Optional[dict]={'model_name':'vit_base_patch16_224_miil_in21k',"optimizer_name":'SGD'}
+        model_conf: Optional[dict]=None  #"optimizer_name":'SGD'}
         # what is optim_kw?
     ):
         # training is done with gradient accumulation steps, so no extra code needed for optimizer
@@ -145,9 +154,11 @@ class FFVT(ImageClassifier):
         ImageClassifier.__init__(self, base_conf=base_conf, model_conf=model_conf)
     
     def setup_model(self):
+
         # need transformer and head
         self.transformer = Transformer(self.feature_size)
         self.linear = torch.nn.Linear(self.feature_size, self.num_classes)
+        # self.model_conf.model_kw.update(img_size=448,)
 
     def forward(self, x):
         embeds = self.backbone(x)
