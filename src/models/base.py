@@ -25,7 +25,7 @@ def get_torchvision_model(name, pretrained=True, **kwargs):
     import torchvision
     num_classes = kwargs.pop('num_classes')
     if 'weights' not in kwargs:
-        if pretrained == False: kwargs['weights'] = None
+        if not pretrained: kwargs['weights'] = None
         elif pretrained == True: kwargs['weights'] = 'DEFAULT'
     model = getattr(torchvision.models, name)(**kwargs)
     model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
@@ -182,13 +182,28 @@ class BaseModule(pl.LightningModule):
         finetuning = getattr(self, 'finetune_list', list())
 
         # create optimizer
-        param_groups, assignments = make_parameter_groups(self, self.lr, finetune_lr_scale, weight_decay, finetuning)
+        # param_groups, assignments = make_parameter_groups(self, self.lr, finetune_lr_scale, weight_decay, finetuning)
+        param_groups = [{'params': [], 'lr': self.lr}, {'params': [], 'lr': self.lr * finetune_lr_scale}]
+        for n, m in self.named_children():
+            if n == 'backbone':
+                for bn, bm in m.named_children():
+                    if bn in ('head', 'fc'): pg = param_groups[0]
+                    else: pg = param_groups[1]
+                    pg['params'].extend(list(bm.parameters()))
+            else:
+                param_groups[0]['params'].extend(list(m.parameters()))
         optimizer = get_optimizer(self.base_conf.optimizer_name)(param_groups, lr=self.lr, **self.base_conf.optim_kw)
 
-        if self.trainer.is_global_zero:
-            w = max(len(x[0]) for x in assignments)
-            tmp = '{{: <{}}}  {{: <{}}}  {{}}'.format(w, 8)
-            print('\n'.join(tmp.format(*x) for x in assignments))
+        #if self.trainer.is_global_zero:
+        #    counts = {}
+        #    for x in assignments:
+        #        k = f'({x[1]}, {x[2]})'
+        #        counts[k] = counts.get(k, 0) + 1
+        #    for k in counts:
+        #        print(f'{counts[k]} parameters for {k}')
+            # w = max(len(x[0]) for x in assignments)
+            # tmp = '{{: <{}}}  {{: <{}}}  {{}}'.format(w, 8)
+            # print('\n'.join(tmp.format(*x) for x in assignments))
 
         # create learning rate schedule
         scheduler = {
@@ -243,10 +258,13 @@ class ImageClassifier(BaseModule):
         self,
         model_conf: Optional[dict]=None,
         base_conf: Optional[dict]=None,
+        head_dropout: float=0.0,
     ):
         BaseModule.__init__(self, base_conf)
         self.model_conf = ModelConfig(**(model_conf or {}))
         self.num_classes = self.model_conf.num_classes
+
+        self.head_dropout = head_dropout
 
         # setup the backbone model
         self.inject_backbone_args()
@@ -265,6 +283,8 @@ class ImageClassifier(BaseModule):
 
     def inject_backbone_args(self):
         '''Add method-specific settings to the model config before creating the backbone.'''
+        self.model_conf.model_kw['features_only'] = True
+        self.model_conf.model_kw['out_indices'] = (4,)
         pass
 
     def setup_backbone(self):
@@ -277,13 +297,28 @@ class ImageClassifier(BaseModule):
             # load weights from checkpoint file 
             state = torch.load(conf.pretrained, map_location='cpu')['state_dict']
             model_state = self.backbone.state_dict()
+            extra = [k for k in state if k not in model_state]
+            missing = [k for k in model_state if k not in state]
             mismatch = [k for k in state if k in model_state and state[k].shape != model_state[k].shape]
+            print(f'Loading checkpoint: {conf.pretrained}')
+            if extra:
+                print(f' - Extra parameters: {extra}')
+            if missing:
+                print(f' - Missing parameters: {missing}')
+            if mismatch:
+                print(f' - Skipping mismatched parameters: {mismatch}')
             self.backbone.load_state_dict({k: v for k, v in state.items() if k not in mismatch}, strict=False)
-            print(f'Skipping mismatched parameters: {mismatch}')
 
     def setup_model(self):
         '''Create any additional model components beyond the backbone.'''
-        pass
+        self.head = torch.nn.Sequential(
+            torch.nn.BatchNorm2d(2048, affine=False),
+            # torch.nn.Dropout(p=0.5),
+            torch.nn.AdaptiveAvgPool2d(1),
+            torch.nn.Flatten(),
+            torch.nn.Dropout(p=self.head_dropout),
+            torch.nn.Linear(2048, self.num_classes),
+        )
 
     def setup_objective(self):
         '''Create the objective function.'''
@@ -295,7 +330,10 @@ class ImageClassifier(BaseModule):
         self.val_accuracy = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
 
     def forward(self, x):
-        return self.backbone(x)
+        # return self.backbone(x)
+        x = self.backbone(x)[-1]
+        x = self.head(x)
+        return x
 
     def step(self, batch, accuracy_metric):
         '''Things that should happen during both training and validation steps.'''
