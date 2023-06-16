@@ -28,6 +28,8 @@ class FGVCDataModule(BaseDataModule):
         normalize: str='in21k',
         normalize_on_gpu: bool=True,
         multi_augment: int=0,
+        min_crop: float=0.1,
+        interpolation: str='bilinear',
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -41,6 +43,8 @@ class FGVCDataModule(BaseDataModule):
         self.normalize = normalize
         self.normalize_on_gpu = normalize_on_gpu
         self.multi_augment = multi_augment
+        self.min_crop = min_crop
+        self.interpolation = getattr(T.InterpolationMode, interpolation.upper())
 
     def transforms(self):
         if self.normalize_on_gpu:
@@ -59,12 +63,18 @@ class FGVCDataModule(BaseDataModule):
 
         if self.multi_augment > 0:
             train = T.Compose([
-                T.RandomResizedCrop((self.size, self.size), (0.25, 1), (0.9, 1 / 0.9)),
+                T.RandomResizedCrop(
+                    (self.size, self.size), (0.75, 1), (0.95, 1 / 0.95),
+                    interpolation=self.interpolation, antialias=True,
+                ),
                 *nrm,
             ])
         else:
             train = T.Compose([
-                T.RandomResizedCrop((self.size, self.size), (0.1, 1), (0.8, 1.25)),
+                T.RandomResizedCrop(
+                    (self.size, self.size), (self.min_crop, 1), (0.8, 1.25),
+                    interpolation=self.interpolation, antialias=True,
+                ),
                 T.ColorJitter(0.25, 0.25, 0.25),
                 T.RandomHorizontalFlip(0.5),
                 *nrm,
@@ -72,7 +82,7 @@ class FGVCDataModule(BaseDataModule):
             
         resize = [round(8/7*self.size/32)*32] * 2
         val = T.Compose([
-            T.Resize(resize),
+            T.Resize(resize, interpolation=self.interpolation, antialias=True),
             T.CenterCrop((self.size, self.size)),
             *nrm,
         ])
@@ -84,7 +94,10 @@ class FGVCDataModule(BaseDataModule):
 
         if self.multi_augment > 0:
             self.gpu_tform = torch.nn.Sequential(
-                T.RandomResizedCrop(self.size, (0.1, 1), (0.8, 1.25), antialias=True),
+                T.RandomResizedCrop(
+                    self.size, (self.min_crop, 1), (0.8, 1.25),
+                    interpolation=self.interpolation, antialias=True,
+                ),
                 T.ColorJitter(0.25, 0.25, 0.25),
                 T.RandomHorizontalFlip(0.5),
             )
