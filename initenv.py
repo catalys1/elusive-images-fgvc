@@ -7,3 +7,4 @@ if Path('.env').is_file():
 with Path('.env').open('w') as fp:
     print(f'WORKDIR={str(Path.cwd().resolve())}', file=fp)
     print(f'DATADIR={str(Path("data").resolve())}', file=fp)
+    print(f'CONDA_ENV=hp', file=fp)
