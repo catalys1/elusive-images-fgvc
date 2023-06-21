@@ -25,7 +25,7 @@ def ToTensor(x):
 class FGVCDataModule(BaseDataModule):
     def __init__(
         self,
-        normalize: str='in21k',
+        normalize: str='in1k',
         normalize_on_gpu: bool=True,
         multi_augment: int=0,
         min_crop: float=0.08,
