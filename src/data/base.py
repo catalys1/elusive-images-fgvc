@@ -72,6 +72,9 @@ class BaseDataModule(LightningDataModule):
             collate_fn=self.collate,
         )
 
+    def predict_dataloader(self):
+        return self.val_dataloader()
+
     def collate(self, batch):
         # Override for custom collate function
         return default_collate(batch)
