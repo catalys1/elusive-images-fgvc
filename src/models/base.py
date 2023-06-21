@@ -1,6 +1,5 @@
 '''
 '''
-import os
 from typing import Any, Dict, List, Optional, Union
 
 import pytorch_lightning as pl
@@ -58,6 +57,7 @@ def make_parameter_groups(
     finetune_lr_scale: float=0.1,
     weight_decay: float=0.0,
     finetune_list: Optional[List[str]]=None,
+    decouple: bool=True,
 ):
     '''Divide the network parameters into groups with different hyperparameters.
     Pretrained weights will get a lower learning rate. Bias parameters and parameters in Normalization
@@ -66,8 +66,7 @@ def make_parameter_groups(
     finetune_list = set(finetune_list) or []
 
     assignments = []
-
-    # initialize parameter groups for scratch and finetune parameters, with or without weight decay
+        
     param_groups = {}
     for key in ('scratch', 'finetune'):
         lr = base_lr * (1 if key == 'scratch' else finetune_lr_scale)
@@ -87,7 +86,7 @@ def make_parameter_groups(
         # add module's direct parameters
         for pname, param in module.named_parameters(recurse=False):
             key2 = 'decay'
-            if norm or pname.endswith('bias'):
+            if decouple and (norm or pname.endswith('bias')):
                 key2 = 'no_decay'
             param_groups[key1][key2]['params'].append(param)
             assignments.append(('.'.join((name, pname)), key1, key2))
@@ -106,10 +105,12 @@ def make_parameter_groups(
 
 
 def get_optimizer(optim_name):
+    '''Return an optimizer class from torch.optim.'''
     return getattr(torch.optim, optim_name)
 
 
 def get_gpu_memory_usage():
+    '''Return a string that gives details about GPU memory usage.'''
     avail, total = torch.cuda.mem_get_info()
     mem_used = 100 * (1 - (avail / total))
     return f'GPU memory used: {(total - avail) / 1024**3:.2f} of {total / 1024**3:.2f} GB ({mem_used:.2f}%)'
@@ -134,11 +135,11 @@ class BaseConfig:
     def __init__(
         self,
         optimizer_name: str='SGD',
-        base_lr: float=1e-3,
+        base_lr: float=1e-2,
         lr_scale: float=1.0,
         finetune_lr_scale: float=0.1,
         weight_decay: float=5e-4,
-        warmup: float=0.05,
+        warmup: float=1e-4,
         optim_kw: Optional[Dict]=None,
     ):
         self.optimizer_name = optimizer_name
@@ -152,6 +153,31 @@ class BaseConfig:
         self.base_lr = base_lr
         self.lr_scale = lr_scale
         self.finetune_lr_scale = finetune_lr_scale
+
+
+class ModelConfig:
+    '''Basic backbone model configuration.
+
+    Args:
+        model_name (str): name of timm model that will be used to create the backbone.
+        num_classes (int): number of classes that will be predicted.
+        pretrained (str | bool): if bool, use pretrained weights from timm. If str, should be a path
+            to a model checkpoint with pretrained weights (default: True).
+        model_kw (optional dict): additional keyword arguments passed to timm.create_model.
+    '''
+    def __init__(
+        self,
+        model_name: str,
+        num_classes: int,
+        pretrained: Union[str, bool]=True,
+        model_kw: Optional[Dict]=None,
+        library: str='timm',
+    ):
+        self.model_name = model_name
+        self.num_classes = num_classes
+        self.pretrained = pretrained
+        self.model_kw = model_kw or {}
+        self.library = library
 
 
 class BaseModule(pl.LightningModule):
@@ -182,25 +208,18 @@ class BaseModule(pl.LightningModule):
         finetuning = getattr(self, 'finetune_list', list())
 
         # create optimizer
-        # param_groups, assignments = make_parameter_groups(self, self.lr, finetune_lr_scale, weight_decay, finetuning)
-        param_groups = [{'params': [], 'lr': self.lr}, {'params': [], 'lr': self.lr * finetune_lr_scale}]
-        for n, m in self.named_children():
-            if n == 'backbone':
-                for bn, bm in m.named_children():
-                    if bn in ('head', 'fc'): pg = param_groups[0]
-                    else: pg = param_groups[1]
-                    pg['params'].extend(list(bm.parameters()))
-            else:
-                param_groups[0]['params'].extend(list(m.parameters()))
+        param_groups, assignments = make_parameter_groups(
+            self, self.lr, finetune_lr_scale, weight_decay, finetuning, decouple=True
+        )
         optimizer = get_optimizer(self.base_conf.optimizer_name)(param_groups, lr=self.lr, **self.base_conf.optim_kw)
 
-        #if self.trainer.is_global_zero:
-        #    counts = {}
-        #    for x in assignments:
-        #        k = f'({x[1]}, {x[2]})'
-        #        counts[k] = counts.get(k, 0) + 1
-        #    for k in counts:
-        #        print(f'{counts[k]} parameters for {k}')
+        if self.trainer.is_global_zero:
+           counts = {}
+           for x in assignments:
+               k = f'({x[1]}, {x[2]})'
+               counts[k] = counts.get(k, 0) + 1
+           for k in counts:
+               print(f'{counts[k]} parameters for {k}')
             # w = max(len(x[0]) for x in assignments)
             # tmp = '{{: <{}}}  {{: <{}}}  {{}}'.format(w, 8)
             # print('\n'.join(tmp.format(*x) for x in assignments))
@@ -220,31 +239,6 @@ class BaseModule(pl.LightningModule):
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
 
 
-class ModelConfig:
-    '''Basic backbone model configuration.
-
-    Args:
-        model_name (str): name of timm model that will be used to create the backbone.
-        num_classes (int): number of classes that will be predicted.
-        pretrained (str | bool): if bool, use pretrained weights from timm. If str, should be a path
-            to a model checkpoint with pretrained weights (default: True).
-        model_kw (optional dict): additional keyword arguments passed to timm.create_model.
-    '''
-    def __init__(
-        self,
-        model_name: str,
-        num_classes: int,
-        pretrained: Union[str, bool]=True,
-        model_kw: Optional[Dict]=None,
-        library: str='timm',
-    ):
-        self.model_name = model_name
-        self.num_classes = num_classes
-        self.pretrained = pretrained
-        self.model_kw = model_kw or {}
-        self.library = library
-
-
 class ImageClassifier(BaseModule):
     '''ImageClassifier.
 
@@ -258,13 +252,10 @@ class ImageClassifier(BaseModule):
         self,
         model_conf: Optional[dict]=None,
         base_conf: Optional[dict]=None,
-        head_dropout: float=0.0,
     ):
-        BaseModule.__init__(self, base_conf)
+        super().__init__(base_conf)
         self.model_conf = ModelConfig(**(model_conf or {}))
         self.num_classes = self.model_conf.num_classes
-
-        self.head_dropout = head_dropout
 
         # setup the backbone model
         self.inject_backbone_args()
@@ -283,8 +274,6 @@ class ImageClassifier(BaseModule):
 
     def inject_backbone_args(self):
         '''Add method-specific settings to the model config before creating the backbone.'''
-        self.model_conf.model_kw['features_only'] = True
-        self.model_conf.model_kw['out_indices'] = (4,)
         pass
 
     def setup_backbone(self):
@@ -311,14 +300,7 @@ class ImageClassifier(BaseModule):
 
     def setup_model(self):
         '''Create any additional model components beyond the backbone.'''
-        self.head = torch.nn.Sequential(
-            torch.nn.BatchNorm2d(2048, affine=False),
-            # torch.nn.Dropout(p=0.5),
-            torch.nn.AdaptiveAvgPool2d(1),
-            torch.nn.Flatten(),
-            torch.nn.Dropout(p=self.head_dropout),
-            torch.nn.Linear(2048, self.num_classes),
-        )
+        pass
 
     def setup_objective(self):
         '''Create the objective function.'''
@@ -330,10 +312,7 @@ class ImageClassifier(BaseModule):
         self.val_accuracy = torchmetrics.Accuracy('multiclass', num_classes=self.num_classes)
 
     def forward(self, x):
-        # return self.backbone(x)
-        x = self.backbone(x)[-1]
-        x = self.head(x)
-        return x
+        return self.backbone(x)
 
     def step(self, batch, accuracy_metric):
         '''Things that should happen during both training and validation steps.'''
@@ -349,7 +328,7 @@ class ImageClassifier(BaseModule):
         self.log('train/loss', loss, prog_bar=True, sync_dist=True)
         self.log('train/acc', accuracy, prog_bar=True, sync_dist=True)
 
-        return {'loss': loss, 'pred': pred}
+        return loss
     
     def validation_step(self, batch, batch_idx) -> STEP_OUTPUT:
         pred, loss, accuracy = self.step(batch, self.val_accuracy)
@@ -357,4 +336,29 @@ class ImageClassifier(BaseModule):
         self.log('val/loss', loss, prog_bar=True, sync_dist=True)
         self.log('val/acc', accuracy, prog_bar=True, sync_dist=True)
 
-        return {'loss': loss, 'pred': pred}
+        return loss
+
+    def predict_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
+        x, y = batch
+        pred = self(x)
+
+        self.predictions.append(pred.detach().cpu())
+        self.labels.append(y.cpu())
+
+        return pred
+
+    def on_predict_epoch_start(self) -> None:
+        self.predictions = []
+        self.labels = []
+    
+    def on_predict_epoch_end(self) -> None:
+        logits = torch.cat(self.predictions, 0)
+        labels = torch.cat(self.labels)
+        del self.predictions
+        del self.labels
+
+        accuracy = logits.argmax(1).eq(labels).float().mean().item()
+        print('Accuracy: ', accuracy * 100)
+
+        output = {'logits': logits, 'labels': labels.to(torch.int16)}
+        torch.save(output, f'{self.trainer.log_dir}/preds.pth')

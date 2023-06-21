@@ -25,10 +25,11 @@ def ToTensor(x):
 class FGVCDataModule(BaseDataModule):
     def __init__(
         self,
-        normalize: str='in21k',
+        normalize: str='in1k',
         normalize_on_gpu: bool=True,
         multi_augment: int=0,
-        min_crop: float=0.1,
+        min_crop: float=0.08,
+        color_jitter: float=0.1,
         interpolation: str='bilinear',
         **kwargs
     ):
@@ -44,6 +45,7 @@ class FGVCDataModule(BaseDataModule):
         self.normalize_on_gpu = normalize_on_gpu
         self.multi_augment = multi_augment
         self.min_crop = min_crop
+        self.color_jitter = color_jitter
         self.interpolation = getattr(T.InterpolationMode, interpolation.upper())
 
     def transforms(self):
@@ -72,10 +74,10 @@ class FGVCDataModule(BaseDataModule):
         else:
             train = T.Compose([
                 T.RandomResizedCrop(
-                    (self.size, self.size), (self.min_crop, 1), (0.8, 1.25),
+                    (self.size, self.size), (self.min_crop, 1), (0.75, 1 / 0.75),
                     interpolation=self.interpolation, antialias=True,
                 ),
-                T.ColorJitter(0.25, 0.25, 0.25),
+                T.ColorJitter(*(self.color_jitter, ) * 3),
                 T.RandomHorizontalFlip(0.5),
                 *nrm,
             ])
@@ -98,7 +100,7 @@ class FGVCDataModule(BaseDataModule):
                     self.size, (self.min_crop, 1), (0.8, 1.25),
                     interpolation=self.interpolation, antialias=True,
                 ),
-                T.ColorJitter(0.25, 0.25, 0.25),
+                T.ColorJitter(*(self.color_jitter, ) * 3),
                 T.RandomHorizontalFlip(0.5),
             )
 

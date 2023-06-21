@@ -3,11 +3,13 @@ model:
   init_args:
     base_conf:
       base_lr: 1e-2
-      finetune_lr_scale: 0.02
+      finetune_lr_scale: 0.1
+      weight_decay: 1e-5
     model_conf:
-      model_name: vit_base_patch16_224_miil.in21k
+      model_name: vit_base_patch16_224.augreg_in1k
       pretrained: true
       num_classes: ${num_labels:${data.class_path}}
       model_kw:
         img_size: ${data.init_args.size}
         global_pool: avg
+        drop_rate: 0.7
