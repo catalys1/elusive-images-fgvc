@@ -1,0 +1,34 @@
+trainer:
+  enable_checkpointing: true
+  default_root_dir: logs/__tests/
+  num_nodes: 1
+  devices: 1
+  accelerator: gpu
+  strategy: auto
+  enable_progress_bar: true
+  check_val_every_n_epoch: 1
+  max_epochs: 50
+  log_every_n_steps: 50
+  precision: 16-mixed
+  num_sanity_val_steps: 1
+  callbacks:
+  - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+  logger: true
+model:
+  class_path: src.models.base.ImageClassifier
+  init_args:
+    base_conf:
+      base_lr: 0.01
+      finetune_lr_scale: 0.02
+    model_conf:
+      model_name: resnet50
+      pretrained: ${oc.env:DATADIR}/resnet50_miil_21k.pth
+      num_classes: ${num_labels:${data.class_path}}
+data:
+  class_path: src.data.fgvc.CUB
+  init_args:
+    root: ${oc.env:DATADIR}/CUB_200_2011
+    batch_size: 32
+    num_workers: 8
+    size: 448
+    normalize: in21k
