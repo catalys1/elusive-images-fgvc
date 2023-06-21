@@ -1,7 +1,7 @@
 data:
-  class_path: src.data.fgvc.CUB
+  class_path: src.data.fgvc.StanfordCars
   init_args:
-    root: ${oc.env:DATADIR}/CUB_200_2011
+    root: ${oc.env:DATADIR}/StanfordCars
     batch_size: 32
     num_workers: 8
     size: 448

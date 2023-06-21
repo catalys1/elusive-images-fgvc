@@ -63,6 +63,27 @@ def pselect(config, key):
     return matches
 
 
+def find(config, key, *default):
+    '''
+    Args:
+        config (config): OmegaConf configuration.
+        key (str): key to search for; can contain '*', which will match any contiguous section.
+        default (any): optional default value to return if key is not found. If omitted, a KeyError
+            is raised if key cannot be found in config.
+    '''
+    if len(default) > 1:
+        raise ValueError(f'Found {len(default)} additional arguments, but only accepts 1')
+    result = pselect(config, key)
+    if len(result) == 0:
+        if len(default) == 0:
+            raise KeyError(f'No matches found for key ({key})')
+        else:
+            return default[0]
+    elif len(result) > 1:
+        raise KeyError(f'Found multiple matches for key ({key}): ' + ', '.join(x[0] for x in result))
+    return result[0][1]
+
+
 def compare_configs(conf1, conf2, ignore=None, include=None):
     '''Compare two config files, and return the differences. Every leaf node in the two configs are
     compared, and the differences are returned as a list of (key, val1, val2).
@@ -154,7 +175,7 @@ def combine_from_files(*configs, **named_configs):
     return config
 
 
-def find_config(name, root='token_noise/configs'):
+def find_config(name, root='src/configs'):
     if not name.endswith('.yaml'):
         name = f'{name}.yaml'
     
@@ -165,3 +186,15 @@ def find_config(name, root='token_noise/configs'):
             break
 
     return path
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('configs', nargs='+')
+    parser.add_argument('-f', '--file', type=str, default='config.yaml')
+    args = parser.parse_args()
+
+    config = combine_from_files(*args.configs)
+
+    OmegaConf.save(config, args.file)

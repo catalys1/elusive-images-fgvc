@@ -15,7 +15,6 @@ __all__ = [
     'create_slurm_batch_file',
     'sync_cluster_and_config',
     'setup_run_for_slurm',
-    'setup_run_for_spj',
     'setup_run_for_local',
     'launch_slurm_jobs',
 ]
@@ -111,6 +110,7 @@ def create_slurm_batch_file(
     if auto_resubmit:
         sbatch_opts.append(f'--signal=SIGUSR1@90')
         sbatch_opts.append(f'--requeue')
+        sbatch_opts.append(f'--open-mode=append')
     sbatch_opts = '\n'.join(f'#SBATCH {x}' for x in sbatch_opts)
     sbatch = (
         '#!/bin/bash\n'
@@ -175,7 +175,7 @@ def setup_run_for_slurm(config, slurm_kw=None, log_dir=None, log_subdir=None, pr
     slurm_kw = slurm_def
 
     # create the run log directory
-    run_dir = _make_run_dir(log_dir, log_subdir, wandb=with_wandb, slurm=True)
+    run_dir = _make_run_dir(log_dir, log_subdir, slurm=True)
 
     # update slurm and config with paths
     # log and checkpoint paths should be defined relative to trainer.default_root_dir using node interpolation
@@ -202,7 +202,7 @@ def setup_run_for_slurm(config, slurm_kw=None, log_dir=None, log_subdir=None, pr
     # save files to run dir
     config_path = os.path.join(run_dir, 'raw_run_config.yaml')
     OmegaConf.save(config, config_path)
-    command = f'python train.py fit --config={config_path}'
+    command = f'python run.py fit --config={config_path}'
     slurm_file_content = create_slurm_batch_file(command, **slurm_kw)
     job_file = os.path.join(run_dir, 'job_submit.sh')
     with open(job_file, 'w') as f:
@@ -258,7 +258,7 @@ if __name__ == '__main__':
     parser.add_argument('config', nargs='+', type=str)
     parser.add_argument('-d', '--log_dir', type=str, default='logs')
     parser.add_argument('-s', '--log_subdir', type=str, default='__tests')
-    parser.add_argument('-w', '--with_wandb', type=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument('-w', '--with_wandb', action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
 
     import sys

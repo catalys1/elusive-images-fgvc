@@ -4,6 +4,6 @@ logger:
       project: ${project_name}
       name: run-${path_seg:${.dir},-1}
       id: "???"  # needs to be replaced
-      dir: ${trainer.default_root_dir}
+      save_dir: ${trainer.default_root_dir}
       resume: allow
       offline: true

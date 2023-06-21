@@ -1,6 +1,7 @@
 '''Base LightningDataModule to be inherited for each dataset.
 '''
 from pathlib import Path
+from typing import Optional
 
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, default_collate
@@ -26,10 +27,12 @@ class BaseDataModule(LightningDataModule):
         pin_memory: bool=True,
         drop_last: bool=True,
         size: int=224,
+        val_batch_size: Optional[int]=None,
     ):
         super().__init__()
         self.root = Path(root)
         self.batch_size = batch_size
+        self.val_batch_size = val_batch_size or batch_size
         self.num_workers = num_workers
         self.shuffle = shuffle
         self.pin_memory = pin_memory
@@ -61,7 +64,7 @@ class BaseDataModule(LightningDataModule):
     def val_dataloader(self):
         return DataLoader(
             self.val_data,
-            batch_size=self.batch_size,
+            batch_size=self.val_batch_size,
             num_workers=self.num_workers,
             shuffle=False,
             pin_memory=self.pin_memory,
