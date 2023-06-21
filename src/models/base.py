@@ -135,7 +135,7 @@ class BaseConfig:
     def __init__(
         self,
         optimizer_name: str='SGD',
-        base_lr: float=1e-3,
+        base_lr: float=1e-2,
         lr_scale: float=1.0,
         finetune_lr_scale: float=0.1,
         weight_decay: float=5e-4,
@@ -252,14 +252,10 @@ class ImageClassifier(BaseModule):
         self,
         model_conf: Optional[dict]=None,
         base_conf: Optional[dict]=None,
-        head_dropout: float=0.0,
     ):
-        # BaseModule.__init__(self, base_conf)
         super().__init__(base_conf)
         self.model_conf = ModelConfig(**(model_conf or {}))
         self.num_classes = self.model_conf.num_classes
-
-        self.head_dropout = head_dropout
 
         # setup the backbone model
         self.inject_backbone_args()
@@ -341,3 +337,28 @@ class ImageClassifier(BaseModule):
         self.log('val/acc', accuracy, prog_bar=True, sync_dist=True)
 
         return loss
+
+    def predict_step(self, batch, batch_idx) -> STEP_OUTPUT | None:
+        x, y = batch
+        pred = self(x)
+
+        self.predictions.append(pred.detach().cpu())
+        self.labels.append(y.cpu())
+
+        return pred
+
+    def on_predict_epoch_start(self) -> None:
+        self.predictions = []
+        self.labels = []
+    
+    def on_predict_epoch_end(self) -> None:
+        logits = torch.cat(self.predictions, 0)
+        labels = torch.cat(self.labels)
+        del self.predictions
+        del self.labels
+
+        accuracy = logits.argmax(1).eq(labels).float().mean().item()
+        print('Accuracy: ', accuracy * 100)
+
+        output = {'logits': logits, 'labels': labels.to(torch.int16)}
+        torch.save(output, f'{self.trainer.log_dir}/preds.pth')
