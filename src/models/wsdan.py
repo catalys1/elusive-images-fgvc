@@ -25,7 +25,7 @@ __all__ = ['WSDAN']
 # M: 32
 # beta: 5e-2
 
-EPS = 1e-12
+EPS = 1e-6
 
 interpolate = partial(
     torch.nn.functional.interpolate,
@@ -137,8 +137,8 @@ class WSDAN(ImageClassifier):
 
         # This mystical multiply by 100 is in the original tensorflow implementation, as well as the pytorch
         # reimplementations. No explenation is provided. I tried removing it, but training doesn't work without it...
-        # p = self.fc(feature_matrix * 100.0)
-        p = self.fc(feature_matrix)
+        p = self.fc(feature_matrix * 100.0)
+        # p = self.fc(feature_matrix)
 
         if p_only: return p
 
@@ -173,7 +173,7 @@ class WSDAN(ImageClassifier):
             wmax = min(int(nz_inds[:, 1].max().item() + pw), w)
 
             crop_images.append(
-                interpolate(images[i:i+1,:, hmin:hmax, wmin:wmax], (h, w)))
+                interpolate(images[i:i+1, :, hmin:hmax, wmin:wmax], (h, w)))
         crop_images = torch.cat(crop_images, dim=0)
         return crop_images
         
@@ -207,7 +207,6 @@ class WSDAN(ImageClassifier):
         # update class feature centers
         feature_center_batch = normalize(self.feature_center[y], dim=-1)
         center_update = self.beta * (feature_mat.detach() - feature_center_batch)
-        # self.feature_center[y].add_(center_update)
         idx = y[:, None].expand_as(center_update)
         self.feature_center.scatter_add_(dim=0, index=idx, src=center_update)
 
@@ -222,8 +221,6 @@ class WSDAN(ImageClassifier):
         logits_drop = self(drops, p_only=True)
 
         # calculate loss
-        # loss = (self.objective(logits_raw, y) + self.objective(logits_crop, y) + self.objective(logits_drop, y))
-        # loss = (1. / 3) * sum(self.objective(x, y) for x in (logits_raw, logits_crop, logits_drop))
         obj = self.objective
         loss = (1. / 3) * (obj(logits_raw, y) + obj(logits_crop, y) + obj(logits_drop, y))
         loss = loss + self.centerloss(feature_mat, feature_center_batch)
@@ -239,8 +236,6 @@ class WSDAN(ImageClassifier):
         self.log('train/acc_crop', crop_acc, prog_bar=False)
         self.log('train/acc_drop', drop_acc, prog_bar=False)
 
-        self.log('center_norm', self.feature_center.norm(2, dim=1).max(), prog_bar=True)
-
         return loss
 
     def inference_step(self, x):
@@ -250,7 +245,6 @@ class WSDAN(ImageClassifier):
         crops = self.batch_crop(x, attention_map[:,:1])
         logits_crop = self(crops, p_only=True)
         # combined predictions
-        # logits = 0.5 * (logits_raw + logits_crop)
         logits = (logits_raw.softmax(1) + logits_crop.softmax(1)).mul_(0.5).log_()
         return logits
 
