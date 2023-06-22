@@ -355,3 +355,12 @@ class SIMTrans(ImageClassifier):
         self.log('val/acc', accuracy, prog_bar=True, sync_dist=True)
 
         return {'loss': ce_loss, 'pred': logits}
+
+    def predict_step(self, batch, batch_idx):
+        x, y = batch
+        pred = self(x)[0]
+
+        self.predictions.append(pred.detach().cpu())
+        self.labels.append(y.cpu())
+
+        return pred

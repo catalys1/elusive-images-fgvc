@@ -207,10 +207,12 @@ class PMG(ImageClassifier):
         self.log('val/loss', loss, prog_bar=True, **log_kw)
         self.log('val/acc', acc, prog_bar=True, **log_kw)
         self.log('val/acc_comb', acc_comb, prog_bar=True, **log_kw)
-        
-    def test_step(self, batch, batch_idx):
+
+    def predict_step(self, batch, batch_idx):
         x, y = batch
-        outs = self(x, level=None)
-        logits = sum(outs)
-        return {'logits': logits, 'y': y}
-    
+        pred = sum(self(x, level=None))
+
+        self.predictions.append(pred.detach().cpu())
+        self.labels.append(y.cpu())
+
+        return pred
