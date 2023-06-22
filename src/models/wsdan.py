@@ -263,7 +263,11 @@ class WSDAN(ImageClassifier):
 
         return loss
 
-    def test_step(self, batch, batch_idx):
+    def predict_step(self, batch, batch_idx):
         x, y = batch
-        logits = self.inference_step(x)
-        return {'logits': logits, 'y': y}
+        pred = self.inference_step(x)
+
+        self.predictions.append(pred.detach().cpu())
+        self.labels.append(y.cpu())
+
+        return pred
