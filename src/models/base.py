@@ -361,4 +361,5 @@ class ImageClassifier(BaseModule):
         print('Accuracy: ', accuracy * 100)
 
         output = {'logits': logits, 'labels': labels.to(torch.int16)}
-        torch.save(output, f'{self.trainer.log_dir}/preds.pth')
+        name = getattr(self.trainer.datamodule, 'pred_file_name', 'preds.pth')
+        torch.save(output, f'{self.trainer.log_dir}/{name}')
