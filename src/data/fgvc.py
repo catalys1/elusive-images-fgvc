@@ -13,6 +13,7 @@ __all__ = [
     'Aircraft',
     'CUB',
     'Fungi',
+    'InatCUB',
     'NABirds',
     'StanfordCars',
 ]
@@ -136,6 +137,12 @@ class CUB(FGVCDataModule):
 class Fungi(FGVCDataModule):
     dataclass = fgvcdata.DanishFungi
     num_classes = 183
+
+
+class InatCUB(FGVCDataModule):
+    dataclass = fgvcdata.InatCUB
+    num_classes = 200
+    pred_file_name = 'icub_preds.pth'
 
 
 class NABirds(FGVCDataModule):
