@@ -45,10 +45,10 @@ pip install -e fgvc-data-pytorch
 The entrypoint is `run.py`.
 We need to specify at least one configuration file (containing configurations for the trainer, model, and data).
 We can also combine different configuration files.
-Here's an example training ResNet-50 on CUB, using separate config files:
+Here's an example of training ResNet-50 on CUB.
 ```bash
-# create the config file by merging several configs
-python utils/configs.py src/configs/trainer/test_trainer.yaml src/configs/models/resnet50.yaml src/configs/data/cub.yaml -f config.yaml
+# create a single config file by merging configs for trainer, data, and model
+python utils/configs.py src/configs/trainer/test_trainer.yaml src/configs/data/cub.yaml src/configs/models/resnet50.yaml -f config.yaml
 
 # "fit" tells Lightning to run the training loop
 python run.py fit -c config.yaml
@@ -57,9 +57,9 @@ python run.py fit -c config.yaml
 #### Backbones
 
 We're using ResNet-50 and ViT-Base-16-224 as backbone feature extractors.
-To standardize comparison, we use models pretrained on ImageNet-21k under the same settings,
-available through [this repository](https://github.com/Alibaba-MIIL/ImageNet21K#1-pretrained-models--on-imagenet-21k-p-dataset).
+To standardize comparison, we use models pretrained on ImageNet-1k with supervised learning.
 
-**ResNet-50**: the weights need to be manually [downloaded](https://miil-public-eu.oss-eu-central-1.aliyuncs.com/model-zoo/ImageNet_21K_P/models/resnet50_miil_21k.pth).
+**ResNet-50**: we use the weights available from `torchvision` as `IMAGENET1K_V2`,
+we we found to give more stable performance than the default weights from `timm`.
 
-**ViT**: the weights can be downloaded and used through `timm` as `timm.create_model('vit_base_patch16_224_miil.in21k', pretrained=True)`
+**ViT**: We use the weights available from `timm` as `vit_base_patch16_224.augreg_in1k`.
