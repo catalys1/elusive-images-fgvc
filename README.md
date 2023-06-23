@@ -60,6 +60,6 @@ We're using ResNet-50 and ViT-Base-16-224 as backbone feature extractors.
 To standardize comparison, we use models pretrained on ImageNet-1k with supervised learning.
 
 **ResNet-50**: we use the weights available from `torchvision` as `IMAGENET1K_V2`,
-we we found to give more stable performance than the default weights from `timm`.
+which we found to give more stable performance than the default weights from `timm`.
 
 **ViT**: We use the weights available from `timm` as `vit_base_patch16_224.augreg_in1k`.
