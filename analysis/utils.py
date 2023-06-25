@@ -38,14 +38,14 @@ def get_prediction_data(
     root = Path(root).joinpath(dataset)
     unpack = False
     if which is None:
-        which = [int(x.name.rsplit('-')[-1]) for x in root.glob('run-*')]
+        which = sorted([int(x.name.rsplit('-')[-1]) for x in root.glob('run-*')])
     elif isinstance(which, int):
         which = [which]
         unpack = True
     
     all_preds = []
     if progress:
-        prog = tqdm(which)
+        prog = tqdm(which, f'{dataset} ({name})')
     else:
         prog = which
     for i in prog:
@@ -94,10 +94,10 @@ def accuracy(preds: Tensor, labels: Tensor, is_logits: bool=False) -> Tensor:
         is_logits (bool): if True, preds should contain logits (class scores) for each class.
 
     Returns:
-        Tensor of shape (1, ) containing the average accuracy over all predictions.
+        Tensor of shape (...) or (1, ) containing the average accuracy over all predictions.
     '''
     correct = correct_mask(preds, labels, is_logits)
-    return correct.float().mean()
+    return correct.float().mean(-1)
 
 
 def class_accuracy(
@@ -143,8 +143,11 @@ def prediction_overlap(preds: Tensor, labels: Tensor, return_img_count: bool=Fal
         labels (Tensor): ground-truth labels with shape (N, ).
     
     Returns:
-        Tensor of shape (K, ), containing the number of images which were correctly predicted
-        by a subset of k models, with k = [0, 1, ..., K].
+        groups (Tensor): shape (K + 1, ), containing the number of images which were correctly predicted
+            by a subset of k models, with k = [0, 1, ..., K].
+        img_count (Tensor): returned if `return_img_count` is True; shape (N, ), contains for each image
+            the number of correct predictions across the K models.
+
     '''
     img_count = correct_mask(preds, labels).sum(0)
     groups = img_count.bincount(minlength=preds.shape[0] + 1)
