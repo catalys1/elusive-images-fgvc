@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, Union
 
+import numpy as np
+from scipy.sparse.csgraph import connected_components
 import torch
 from torch import Tensor
 from tqdm.auto import tqdm
@@ -177,6 +179,9 @@ def confusion_matrix(
             When class_idx is given, each row is still normalized by the total number of images with that
             ground-truth label, so that the row sum may be less than one (when predictions fall outside the
             the given set of classes).
+
+    Returns:
+        confusion matrix (Tensor): confusion matrix with shape (C, C).
     '''
     if num_class is None:
         num_class = labels.max() + 1
@@ -209,3 +214,33 @@ def confusion_matrix(
             conf.div_(totals)
 
     return conf
+
+
+def similar_class_groups(conf_mat: Tensor, threshold: Union[int, float]) -> List[Tensor]:
+    '''Return groups of classes that are mutually confusing. A group of classes is mutually confusing
+    if, for each class in the group, images from that class are frequently predicted as belonging to one
+    or more other classes in the group. We find groups of mutually confusing classes by treating the
+    confusion matrix as a graph and finding connected components.
+
+    Args:
+        conf_mat (Tensor): confusion matrix of shape (C, C).
+        threshold (int | float): threshold on the number of predictions that will be considered an edge
+            in the graph. If entry (i, j) in the confusion matrix has a value >= threshold, we create
+            an edge between class i and class j.
+
+    Returns:
+        groups (List of Tensors): each tensor in the list contains indices of classes that are mutually
+            confusing; that is, they belong to the same connected component in the thresholded confusion
+            matrix. Only contains groups with more than a single class.
+    '''
+    edges = conf_mat.ge(threshold).long().numpy()
+    components = torch.from_numpy(connected_components(edges, return_labels=True)[1])
+    sizes = components.bincount()
+    keeping = sizes.gt(1).nonzero().ravel()
+    
+    groups = []
+    for k in keeping:
+        g = components.eq(k).nonzero().ravel()
+        groups.append(g)
+    
+    return groups
