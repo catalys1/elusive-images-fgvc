@@ -247,3 +247,91 @@ def similar_class_groups(conf_mat: Tensor, threshold: Union[int, float]) -> List
         groups.append(g)
     
     return groups
+
+def topk(preds: Tensor, labels:Tensor, is_logits:bool=True, k: int=1) -> float:
+    '''Return the top-k accuracy for the given predictions. 
+    For now, needs logits with extra C dim, and assumes you give it this.
+
+    Args:
+        preds (Tensor): predictions of shape (..., N) OR logits of shape (..., N, C) if
+            is_logits=True. C = number of classes.
+        labels (Tensor): ground-truth labels of shape (N, ). N is number of images.
+        k (int): number of top predictions to consider.
+        is_logits (bool): if True, preds should contain logits (class scores) for each class.
+
+    Returns:
+        The accuracy at the given k.
+    '''
+
+    # preds is (K,N,C), K is number of runs, N is number of images, C is number of classes.
+    #if not is_logits:
+        # convert (later)
+
+    # vals, indices
+    top, topk_preds = preds.topk(k, -1) # topk with last dimension. topk_preds is [K,N,k]
+    correct = topk_preds.eq(labels[:, None]).any(-1) # add dimension to labels and compare, broadcasting
+    return correct.float().mean()
+
+
+def getprobs(preds:Tensor) :
+    '''Returns a prediction tensor where the last dimension is normalized to probabilities for each class (from logits)
+     '''
+    norm = torch.nn.functional.softmax(preds,dim=-1) # softmax logits to probabilities
+    return norm
+
+
+def log2ent(logits:Tensor) -> Tensor:
+    '''Converts logits to have the last dimension be the entropy value of the predictions' probabilities.
+
+    Args:
+        logits: (...,N,C) Tensor predictions
+
+    Returns:
+        ents: (..., N) with entropy values for each image's predictions.
+    '''
+    probs = getprobs(logits)
+    element_entr = torch.special.entr(probs)
+    ents = torch.sum(element_entr, dim=-1)
+    return ents
+
+def class_entropy(preds:Tensor,labels:Tensor) -> Tensor:
+    '''Return the average entropy and stdev of the entropies of the predictions for 
+    each class in labels.
+    (unsure if this is even useful but it was helpful to implement to figure out how the data is laid out)
+
+    Args:
+        preds: (...,N,C) Tensor predictions
+        labels: (N,) Tensor ground truth labels
+    Return: 
+        (C,) Tensor entropy of predictions for each class'''
+
+    # Not sure if this would be actually helpful or not. 
+    # Can also modify to do for each run as well with .repeat()
+    entropies = log2ent(preds)
+    class_entropies = torch.zeros(preds.shape[-1])
+    for i in range(preds.shape[-1]): # for each class
+        class_ents = entropies[:,...,(labels==i)]
+        # entropies[:,...,(labels==i)]
+        # torch.masked_select(entropies,labels==i)
+        # or get mean for each B
+        class_entropies[i] = torch.mean(class_ents) #,torch.std(class_ents))
+
+    return class_entropies
+
+def correctk(preds: Tensor, labels: Tensor, is_logits: bool) -> int:
+    '''Find the k value where all images are correct.
+    
+    Args:
+        preds (Tensor): predictions of shape (..., N) OR logits of shape (..., N, C) if
+            is_logits=True; `...` indicates an optional first dimension.
+        labels (Tensor): ground-truth labels of shape (N, ).
+        is_logits (bool): if True, preds should contain logits (class scores) for each class.
+    '''
+    accuracy = 0.0
+    k=1
+
+    while accuracy < 1.0:
+        accuracy = topk(preds, labels, k=k, is_logits=is_logits)
+        k += 1
+
+    return k
