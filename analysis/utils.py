@@ -248,90 +248,115 @@ def similar_class_groups(conf_mat: Tensor, threshold: Union[int, float]) -> List
     
     return groups
 
-def topk(preds: Tensor, labels:Tensor, is_logits:bool=True, k: int=1) -> float:
-    '''Return the top-k accuracy for the given predictions. 
+def topkacc(logits: Tensor, labels:Tensor, k: int=1) -> float:
+    '''Return the top-k *accuracy* for the given predictions. 
     For now, needs logits with extra C dim, and assumes you give it this.
 
     Args:
-        preds (Tensor): predictions of shape (..., N) OR logits of shape (..., N, C) if
-            is_logits=True. C = number of classes.
+        logits (Tensor): logits of shape (..., N, C). C = number of classes.
         labels (Tensor): ground-truth labels of shape (N, ). N is number of images.
         k (int): number of top predictions to consider.
-        is_logits (bool): if True, preds should contain logits (class scores) for each class.
 
     Returns:
-        The accuracy at the given k.
+        The mean accuracies at the given k for each run.
     '''
-
-    # preds is (K,N,C), K is number of runs, N is number of images, C is number of classes.
-    #if not is_logits:
-        # convert (later)
 
     # vals, indices
-    top, topk_preds = preds.topk(k, -1) # topk with last dimension. topk_preds is [K,N,k]
+    top, topk_preds = logits.topk(k, -1) # topk with last dimension. topk_preds is [K,N,k]
     correct = topk_preds.eq(labels[:, None]).any(-1) # add dimension to labels and compare, broadcasting
-    return correct.float().mean()
+    return correct.float().mean(-1)
 
-
-def getprobs(preds:Tensor) :
-    '''Returns a prediction tensor where the last dimension is normalized to probabilities for each class (from logits)
-     '''
-    norm = torch.nn.functional.softmax(preds,dim=-1) # softmax logits to probabilities
-    return norm
-
-
-def log2ent(logits:Tensor) -> Tensor:
-    '''Converts logits to have the last dimension be the entropy value of the predictions' probabilities.
+def hardkimages(logits:Tensor,labels:Tensor,k:int=None):
+    '''Returns the number and indices of images that are still gotten wrong at k-level.
 
     Args:
-        logits: (...,N,C) Tensor predictions
+        logits (Tensor): logits of shape (..., N, C). C = number of classes.
+        labels (Tensor): ground-truth labels of shape (N, ). N is number of images.
+        k (int): number of top predictions to consider. Default is the k just before the 
+        level at which all images are 'correctly' classified.
+
 
     Returns:
-        ents: (..., N) with entropy values for each image's predictions.
-    '''
-    probs = getprobs(logits)
-    element_entr = torch.special.entr(probs)
-    ents = torch.sum(element_entr, dim=-1)
-    return ents
+        count (int): number of images that are still wrongly classified. (...)
+        allindices (list): indexes of the images (count length for each model) that are commonly wrongly classified for each model
 
-def class_entropy(preds:Tensor,labels:Tensor) -> Tensor:
-    '''Return the average entropy and stdev of the entropies of the predictions for 
-    each class in labels.
-    (unsure if this is even useful but it was helpful to implement to figure out how the data is laid out)
+    '''
+    # get image indices which are still not correct, and number of images
+    if (k==None):
+        k = correctk(logits,labels)-1
+
+    # run topk with k-1, don't get accuracy, only topk sorted.
+    top,topk_preds = logits.topk(k,-1)
+    correct = topk_preds.eq(labels[:,None]).any(-1)
+    # count incorrect images, return their indices
+    count = (~correct).float().sum(-1) # get list of counts of incorrect images for each run
+    modelsplit = correct.view(logits.shape[0]//5,logits.shape[0]//5,logits.shape[1]) # split(logits.shape[0])
+    allindice = [] 
+    for model in modelsplit:
+        _,indices = (~model).nonzero(as_tuple=True)
+        # because this will return a LOT of image indices, let's just pick images
+        # that are misclassified more than 3 times (change to 5 to be more selective)
+        inds,ucounts = indices.unique(return_counts=True)
+        select_indices = inds[ucounts >= 3]
+        allindice.append(select_indices)
+    
+    return count, allindice
+
+def correct_class_rank(logits:Tensor, labels: Tensor) -> Tensor:
+    '''Return a list of rankings for each image, showing at what rank for each image the 
+    correct class is.
 
     Args:
-        preds: (...,N,C) Tensor predictions
-        labels: (N,) Tensor ground truth labels
-    Return: 
-        (C,) Tensor entropy of predictions for each class'''
+        logits (Tensor): logits of shape (..., N, C). C = number of classes.
+        labels (Tensor): ground-truth labels of shape (N, ). N is number of images.
 
-    # Not sure if this would be actually helpful or not. 
-    # Can also modify to do for each run as well with .repeat()
-    entropies = log2ent(preds)
-    class_entropies = torch.zeros(preds.shape[-1])
-    for i in range(preds.shape[-1]): # for each class
-        class_ents = entropies[:,...,(labels==i)]
-        # entropies[:,...,(labels==i)]
-        # torch.masked_select(entropies,labels==i)
-        # or get mean for each B
-        class_entropies[i] = torch.mean(class_ents) #,torch.std(class_ents))
+    Returns:
+        ranks (Tensor): (...,N) rank of each image's correct class prediction.
+    '''
 
-    return class_entropies
+    sort, indices = logits.sort(descending=True,stable=True)
+    # get index of correct class for each , labels holds number/indice of correct class
+    # in unsorted logits.
+    # label int -> get indice of label int in indices
+    ranks = torch.nonzero(indices==labels[:,None],as_tuple=True)[-1]
+    ranks = ranks.view(logits.shape[0],logits.shape[1])
+    
+    return ranks
 
-def correctk(preds: Tensor, labels: Tensor, is_logits: bool) -> int:
+def correctk(logits: Tensor, labels: Tensor,error:float=0.01) -> int:
     '''Find the k value where all images are correct.
     
     Args:
-        preds (Tensor): predictions of shape (..., N) OR logits of shape (..., N, C) if
-            is_logits=True; `...` indicates an optional first dimension.
+        logits (Tensor):  logits of shape (..., N, C)
         labels (Tensor): ground-truth labels of shape (N, ).
-        is_logits (bool): if True, preds should contain logits (class scores) for each class.
+        error (float): error around perfect accuracy (1) to compensate.
+
+    Returns:
+        k (int): the k at which topk accuracy is within error of 100%.
     '''
     accuracy = 0.0
-    k=1
+    k=0
 
-    while accuracy < 1.0:
-        accuracy = topk(preds, labels, k=k, is_logits=is_logits)
+    while accuracy < (1.0-error):
         k += 1
+        top, topk_preds = logits.topk(k, -1) 
+        correct = topk_preds.eq(labels[:, None]).any(-1) 
+        accuracy= correct.float().mean()
 
     return k
+
+def topkbymodel(logits:Tensor,labels:Tensor,k:int) -> Tensor:
+    '''Return the top-k *accuracy* for the given predictions by model.
+
+    Args:
+        logits (Tensor): logits of shape (..., N, C). C = number of classes.
+        labels (Tensor): ground-truth labels of shape (N, ). N is number of images.
+        k (int): number of top predictions to consider.
+
+    Returns:
+        modelaccs (Tensor): The average accuracy at the given k for each model.
+    '''
+    allaccs = topkacc(logits,labels,k)
+    modelaccs = allaccs.view(logits.shape[0]//5,logits.shape[0]//5) #allaccs.split(5)
+    modelaccs = modelaccs.mean(0)
+    return modelaccs
