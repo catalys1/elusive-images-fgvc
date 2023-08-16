@@ -3,9 +3,9 @@ model:
   init_args:
     base_conf:
       optimizer_name: SGD
-      base_lr: 2e-3
+      base_lr: 1e-2
       finetune_lr_scale: 0.1
     model_conf:
       model_name: resnet50
-      pretrained: ${oc.env:DATADIR}/resnet50_miil_21k.pth
+      pretrained: ${oc.env:DATADIR}/resnet50_torchvision_v2.pth
       num_classes: ${num_labels:${data.class_path}}

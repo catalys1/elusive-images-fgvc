@@ -161,11 +161,16 @@ def compare(runs, keys=None, time=False):
         config = OmegaConf.load(Path(r).joinpath('raw_run_config.yaml'))
         val_acc = [float(x) for x in re.findall('Val epoch \d+/\d+: .*val/acc = (0\.\d+)', log)]
         max_val = max(val_acc) if val_acc else '---'
-        vs = [max_val] + [find(config, k, '---') for k in keys]
+        vs = [max_val]
+        for k in keys:
+            v = find(config, k, '---')
+            if 'class_path' in k:
+                v = v.rsplit('.', 1)[-1]
+            vs.append(v)
         if time:
             t = re.search(r'Total training time (.*)', log)
             if t: t = t.group(1)
-            else: t = 'Running'
+            else: t = '---'
             vs.append(t)
         vals.append(vs)
     
@@ -174,7 +179,9 @@ def compare(runs, keys=None, time=False):
     slens = [max([len(keys[i])] + [len(str(v[i + 1])) for v in vals]) + 2 for i in range(len(keys))]
     row = ('{{:<{}}}' * (len(keys) + 2))
     row = row.format(8, 9, *slens)
+    print('-' * (sum(slens) + 17))
     print(row.format('Run', 'Val acc', *keys))
+    print('-' * (sum(slens) + 17))
     for run, vs in zip(runs, vals):
         s = row.format(run.name, *[str(x) for x in vs])
         print(s)
@@ -185,8 +192,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('run_dir', type=str)
     parser.add_argument('-k', '--keys', nargs='*', default=None)
+    parser.add_argument('-r', '--range', type=str, default=None)
     parser.add_argument('--time', action=argparse.BooleanOptionalAction, default=True)
 
     args = parser.parse_args()
-    runs = get_run_list(args.run_dir)
+    runs = get_run_list(args.run_dir, args.range)
     compare(runs, args.keys, args.time)

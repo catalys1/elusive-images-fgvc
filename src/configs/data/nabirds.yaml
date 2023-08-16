@@ -2,7 +2,7 @@ data:
   class_path: src.data.fgvc.NABirds
   init_args:
     root: ${oc.env:DATADIR}/nabirds
-    batch_size: 32
+    batch_size: 64
     num_workers: 8
     size: 448
-    normalize: in21k
+    normalize_on_gpu: true

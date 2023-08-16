@@ -254,11 +254,13 @@ class OverlapPatchEmbedding(torch.nn.Module):
 class SIMTrans(ImageClassifier):
     def __init__(
         self,
+        drop_rate: float=0.0,
         base_conf: Optional[dict]=None,
         model_conf: Optional[dict]=None,
     ):
+        self.drop_rate = drop_rate
         # parent class initialization
-        ImageClassifier.__init__(self, base_conf=base_conf, model_conf=model_conf)
+        super().__init__(base_conf=base_conf, model_conf=model_conf)
 
     def inject_backbone_args(self):
         self.model_conf.model_kw.update(
@@ -277,17 +279,16 @@ class SIMTrans(ImageClassifier):
         self.backbone.head = torch.nn.Identity()
 
         self.head = torch.nn.Sequential(
-            # torch.nn.BatchNorm1d(hidden_size * 3),
-            torch.nn.LayerNorm(hidden_size * 3),
+            torch.nn.BatchNorm1d(hidden_size * 3),
+            torch.nn.Dropout(self.drop_rate),
             torch.nn.Linear(hidden_size * 3, 1024),
-            # torch.nn.BatchNorm1d(1024),
-            torch.nn.LayerNorm(1024),
+            torch.nn.BatchNorm1d(1024),
             torch.nn.ELU(inplace=True),
+            torch.nn.Dropout(self.drop_rate),
             torch.nn.Linear(1024, self.model_conf.num_classes),
         )
 
     def forward(self, x: torch.Tensor):
-        # breakpoint()
         last_hidden_state = self.backbone.forward_features(x)
 
         # normalize and concatenate the CLS tokens from last three layers
@@ -354,3 +355,12 @@ class SIMTrans(ImageClassifier):
         self.log('val/acc', accuracy, prog_bar=True, sync_dist=True)
 
         return {'loss': ce_loss, 'pred': logits}
+
+    def predict_step(self, batch, batch_idx):
+        x, y = batch
+        pred = self(x)[0]
+
+        self.predictions.append(pred.detach().cpu())
+        self.labels.append(y.cpu())
+
+        return pred

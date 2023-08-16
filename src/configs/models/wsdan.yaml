@@ -1,9 +1,9 @@
 model:
-  class_path: src.models.base.ImageClassifier
+  class_path: src.models.wsdan.WSDAN
   init_args:
     base_conf:
-      base_lr: 1e-2
-      finetune_lr_scale: 0.1
+      base_lr: 1e-3
+      finetune_lr_scale: 1.0
     model_conf:
       model_name: resnet50
       pretrained: ${oc.env:DATADIR}/resnet50_torchvision_v2.pth
