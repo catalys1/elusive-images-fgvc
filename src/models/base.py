@@ -252,10 +252,12 @@ class ImageClassifier(BaseModule):
         self,
         model_conf: Optional[dict]=None,
         base_conf: Optional[dict]=None,
+        store_embeds: bool=False,
     ):
         super().__init__(base_conf)
         self.model_conf = ModelConfig(**(model_conf or {}))
         self.num_classes = self.model_conf.num_classes
+        self.store_embeds = store_embeds
 
         # setup the backbone model
         self.inject_backbone_args()
@@ -350,6 +352,11 @@ class ImageClassifier(BaseModule):
     def on_predict_epoch_start(self) -> None:
         self.predictions = []
         self.labels = []
+        if self.store_embeds:
+            self.embeds = []
+            def _hook(mod, args):
+                self.embeds.append(args[0])
+            self.hook_handle = self.backbone.fc.register_forward_pre_hook(_hook)
     
     def on_predict_epoch_end(self) -> None:
         logits = torch.cat(self.predictions, 0)
