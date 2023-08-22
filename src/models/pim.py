@@ -1,12 +1,31 @@
 # adapted from https://github.com/chou141253/FGVC-PIM/
 import copy # TODO: needed for deepcopy
-from typing import Optional
+from typing import Dict, Optional
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 
 import torch
 from torchvision.models.feature_extraction import create_feature_extractor
 
 from .base import ImageClassifier
+
+
+def default_feature_layers(name: str):
+    if name.startswith('vit'):
+        return {
+            'blocks.8': 'layer1',
+            'blocks.9': 'layer2',
+            'blocks.10': 'layer3',
+            'blocks.11': 'layer4',
+        }
+    if 'resnet50' in name:
+        return {
+            'layer1.2.act3': 'layer1',
+            'layer2.3.act3': 'layer2',
+            'layer3.5.act3': 'layer3',
+            'layer4.2.act3': 'layer4',
+        }
+
+    raise RuntimeError(f'{name} not currently supported')
 
 
 ################################################################################
@@ -24,24 +43,35 @@ class FeaturePyramid(torch.nn.Module):
         self.upsamples = torch.nn.ModuleDict()
 
         for i, (name, val) in enumerate(inputs.items()):
-            in_dim = val.size(-1)
-            proj = torch.nn.Sequential(
-                torch.nn.Linear(in_dim, in_dim),
-                torch.nn.ReLU(),
-                torch.nn.Linear(in_dim, self.fpn_size),
-            )
+            if val.ndim == 3:  # transformer
+                in_dim = val.size(-1)
+                proj = torch.nn.Sequential(
+                    torch.nn.Linear(in_dim, in_dim),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(in_dim, self.fpn_size),
+                )
+            elif val.ndim == 4:  # convnet
+                in_dim = val.size(1)
+                proj = torch.nn.Sequential(
+                    torch.nn.Conv2d(in_dim, in_dim, 1),
+                    torch.nn.ReLU(),
+                    torch.nn.Conv2d(in_dim, self.fpn_size, 1)
+                )
             self.projections[name] = proj
             
             if i != 0:
-                in_dim = val.size(1)
-                out_dim = inputs[inp_names[i - 1]].size(1)
-                if in_dim != out_dim:
-                    upsample = torch.nn.Conv1d(in_dim, out_dim, 1) # for spatial domain
-                else:
-                    upsample = torch.nn.Identity()
+                if val.ndim == 3:  # transformer
+                    in_dim = val.size(1)
+                    out_dim = inputs[inp_names[i - 1]].size(1)
+                    if in_dim != out_dim:
+                        upsample = torch.nn.Conv1d(in_dim, out_dim, 1) # for spatial domain
+                    else:
+                        upsample = torch.nn.Identity()
+                elif val.ndim == 4:  # convnet
+                    upsample = torch.nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
                 self.upsamples[name] = upsample
 
-    def forward(self,x):
+    def forward(self, x: Dict[str, torch.Tensor]):
         hs = []
         for i, name in enumerate(x):
             x[name] = self.projections[name](x[name])
@@ -52,6 +82,7 @@ class FeaturePyramid(torch.nn.Module):
             x0_name = hs[i - 1]
             # upsample and add
             x[x0_name] = x[x0_name] + self.upsamples[x1_name](x[x1_name])
+
         return x
 
 
@@ -61,48 +92,34 @@ class Selector(torch.nn.Module) :
 
         self.num_select = num_select
     
-    def forward(self, x, logits=None):
-        # x dimensions should be [B, HxW, C] ([B, S, C]) or [B, C, H, W]
+    def forward(self, x: Dict[str, torch.Tensor], logits: Dict[str, torch.Tensor]):
         logits['select'] = []
         logits['drop'] = []
         selections = {}
-        for name in x:
-            # if len(x[name].size()) == 4:
-            #     B, C, H, W = x[name].size()
-            #     x[name] = x[name].view(B, C, H*W).permute(0, 2, 1).contiguous()
-            # C = x[name].size(-1)
+        for name, feats in x.items():
+            if feats.ndim == 4:
+                feats = feats.flatten(2).transpose(1, 2)
+            n = feats.size(-1)
+            
+            logit = logits[name]
+            c = logit.size(-1)
             
             num_select = self.num_select[name]
             probs = torch.softmax(logits[name], dim=-1)
-            # selections[name] = []
-            # preds_1 = []
-            # preds_0 = []
             ranks = probs.max(dim=-1)[0].argsort(dim=-1, descending=True)
+
             top_rank = ranks[:, :num_select, None]
             bot_rank = ranks[:, num_select:, None]
-            sf = x[name].gather(1, top_rank.expand(-1, -1, x[name].shape[-1]))
-            preds_1 = logits[name].gather(1, top_rank.expand(-1, -1, logits[name].shape[-1]))
-            preds_0 = logits[name].gather(1, bot_rank.expand(-1, -1, logits[name].shape[-1]))
-            # for bi in range(logits[name].size(0)):
-            #     max_ids, _ = torch.max(probs[bi], dim=-1)
-            #     confs, ranks = torch.sort(max_ids, descending=True)
-            #     sf = x[name][bi][ranks[:num_select]]
-            #     nf = x[name][bi][ranks[num_select:]]  # calculate
-            #     selections[name].append(sf) # [num_selected, C]
-            #     preds_1.append(logits[name][bi][ranks[:num_select]])
-            #     preds_0.append(logits[name][bi][ranks[num_select:]])
-            
-            # selections[name] = torch.stack(selections[name])
-            # preds_1 = torch.stack(preds_1)
-            # preds_0 = torch.stack(preds_0)
+            sf = feats.gather(1, top_rank.expand(-1, -1, n))
+            preds_1 = logit.gather(1, top_rank.expand(-1, -1, c))
+            preds_0 = logit.gather(1, bot_rank.expand(-1, -1, c))
+
             selections[name] = sf
 
             logits['select'].append(preds_1)
             logits['drop'].append(preds_0)
-            # logits["select_" + name] = preds_1
-            # logits["drop_" + name] = preds_0
 
-        return selections # TODO: fix dimensions
+        return selections
 
 
 class Combiner(torch.nn.Module):
@@ -132,7 +149,7 @@ class Combiner(torch.nn.Module):
 
         self.tanh = torch.nn.Tanh()
 
-    def forward(self, x):
+    def forward(self, x: Dict[str, torch.Tensor]):
         hs = []
         for name in x:
             hs.append(x[name])
@@ -171,6 +188,7 @@ class PIM(ImageClassifier):
         img_size: int=224,
         fpn_size: int=512,
         num_selects: Optional[dict]=None,
+        return_nodes: Optional[dict]=None,
         classifier_drop_rate: float=0.1,
         lambda_b: float=0.5,
         lambda_c: float=1.0,
@@ -190,6 +208,8 @@ class PIM(ImageClassifier):
                 'layer4': 32
             }
         self.num_selects = num_selects
+        
+        self.return_nodes = return_nodes
 
         self.classifier_drop_rate = classifier_drop_rate
 
@@ -200,18 +220,13 @@ class PIM(ImageClassifier):
         ImageClassifier.__init__(self, base_conf=base_conf, model_conf=model_conf)
     
     def setup_model(self):
-        # default return_nodes and num_selects for ViT backbone in builder.py
-        return_nodes = {
-            'blocks.8': 'layer1',
-            'blocks.9': 'layer2',
-            'blocks.10': 'layer3',
-            'blocks.11': 'layer4',
-        }
+        if self.return_nodes is None:
+            self.return_nodes = default_feature_layers(self.model_conf.model_name)
 
-        self.layers = list(return_nodes.values())
+        self.layers = list(self.return_nodes.values())
 
         # turn backbone into feature extractor
-        self.backbone = create_feature_extractor(self.backbone, return_nodes=return_nodes)
+        self.backbone = create_feature_extractor(self.backbone, return_nodes=self.return_nodes)
         rand_in = torch.randn(1, 3, self.img_size, self.img_size)
         dummy_x = self.backbone(rand_in)
 
@@ -234,21 +249,18 @@ class PIM(ImageClassifier):
         total_num_selects = sum(self.num_selects.values())
         self.combiner = Combiner(total_num_selects, self.num_classes, self.fpn_size, self.classifier_drop_rate)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         logits = {}
         x = self.backbone(x)
         x = self.fpn(x)
 
         # predict for each feature point
-        for name in x:
-            if len(x[name].size()) == 4:
-                B, C, H, W = x[name].size()
-                logit = x[name].view(B, C, H*W)
-            elif len(x[name].size()) == 3:
-                logit = x[name].transpose(1, 2).contiguous()
-            # logits[name] = getattr(self, "fpn_classifier_"+name)(logit)
+        for name, feats in x.items():
+            if feats.ndim == 3:
+                logit = feats.transpose(1, 2)
+            elif feats.ndim == 4:
+                logit = feats.flatten(2)
             logits[name] = self.fpn_classifiers[name](logit).transpose(1, 2).contiguous()
-            # logits[name] = logits[name].transpose(1, 2).contiguous()
 
         selected = self.selector(x, logits)
         combined = self.combiner(selected)
