@@ -6,6 +6,9 @@ model:
       finetune_lr_scale: 0.1
       weight_decay: 1e-5
     model_conf:
+      reinit_final_blocks: True
+      warmup_epochs: 10
+      drop_rate: 0.7
       model_name: vit_base_patch16_224.augreg_in1k
       pretrained: true
       num_classes: ${num_labels:${data.class_path}}
