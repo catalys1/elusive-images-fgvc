@@ -1,3 +1,11 @@
+# Run prediction extraction.
+# Runs the "predict" routine on every run that has a pred_config.yaml but no
+# preds.pth in the run directory.
+# Produces preds.pth in the run directory.
+#
+# If run as
+# $ bash get_predictions 1
+# then does a dry run, only printing the runs that would be activated.
 shopt -s nullglob
 
 DRY=${1:-"0"}

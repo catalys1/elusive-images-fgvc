@@ -1,3 +1,4 @@
+# Run prediction extraction for iCub
 shopt -s nullglob
 
 DRY=${1:-"0"}
@@ -11,7 +12,7 @@ do
             echo $run
         else
             echo "Get preds for $run"
-            python run.py predict -c $run/icub_config.yaml
+            python run.py predict -c "$run/icub_config.yaml"
         fi
     fi
 done
