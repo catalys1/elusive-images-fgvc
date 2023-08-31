@@ -29,6 +29,7 @@ models = [
     'pmg',
     'simtrans',
     'wsdan',
+    'ielt',
 ]
 
 data_epoch_times = {
@@ -45,6 +46,7 @@ model_epoch_times = {
     'pmg': 2,
     'simtrans': 3,
     'wsdan': 2,
+    'ielt': 1.5,
 }
 
 seeds = range(5)
