@@ -1,5 +1,7 @@
 # Hard Problems in FGVC
 
+This is the code for our paper **Elusive Images: Beyond Coarse Analysis for Fine-Grained Recognition**, to appear at WACV 2024.
+
 ## Setup
 
 Clone the repository:
