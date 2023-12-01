@@ -46,19 +46,88 @@
     </div>
 
 
+    <!-- CONTRIBUTIONS -->
+    <hr>
+    <div class="section">
+        <h3>Main Contributions</h3>
+        <ul>
+            <li>We propose a framework for identifying and analyzing challenging images and classes within a dataset,
+                using 3 metrics based on aggregate predictions from multiple classification models: <em>prediction
+                overlap</em>, <em>prediction rank</em>, and <em>pairwise class confusion</em>. The code is available.
+            </li>
+            <li>We provide a standardized implementation and training recipe for several state-of-the-art FCVG models,
+                allowing for fair comparison and efficient benchmarking. The code is available.
+            </li>
+            <li>We introduce the iCub dataset, consisting of images of birds from the same species as CUB, but at a
+                larger and more challenging scale, and meant to serve as an additional set of validation images for
+                analysis.
+            </li>
+            <li>We utilize the proposed analysis framework to analyze 5 standard FGVC datasets, along with iCub, using
+                6 different model types, to identify patterns in challenging images and classes.
+            </li>
+        </ul>
+    </div>
+
+
     <!-- METHOD -->
     <hr>
     <div class='section'>
         <h2>Method</h2>
         <p style="color: red">TODO</p>
+        <figure>
+            <img src="source/overlap-and-rank.png" alt="" width="85%" ></img>
+            <figcaption>
+                Illusration of <b>prediction overlap</b> (left) and <b>prediction rank</b> (right).
+            </figcaption>
+        </figure>
+        <figure>
+            <img src="source/pairwise-confusion.png" alt="" width="90%" ></img>
+            <figcaption>
+                Illustration of <b>pairwise class confusion</b>.
+            </figcaption>
+        </figure>
     </div>
     
+    <hr>
+    <div class='section'>
+        <h2>iCub Dataset</h2>
+        <p>
+        We propose the iCub dataset as an additional large-scale source of validation images for testing
+        models trained to recognize birds from the 200 species found in CUB-200. iCub images are sourced
+        from <a href="https://www.inaturalist.org">iNaturalist</a>, and have a different visual distribution.
+        This allows us to test CUB models on a more difficult set of data to see how they generalize.
+        </p>
+        <figure>
+            <img src="source/icub-samples.png" alt="iCub sample images" width="100%" ></img>
+            <figcaption>A random sampling of images from the proposed iCub dataset.</figcaption>
+        </figure>
+        <figure>
+            <img src="source/cub-icub-stats.png" width="100%">
+            <figcaption>
+                One way iCub differs from CUB is in the spatial distribution of the birds with respect
+                to the image; in particular, iCub contains many birds that are small (occupy a small area
+                of the image).
+            </figcaption>
+        </figure>
+    </div>
 
     <!-- RESULTS -->
     <hr>
     <div class='section'>
         <h2>Results</h2>
         <p style="color: red">TODO</p>
+        <figure>
+            <img src="source/model-accuracy.png" width="90%">
+            <figcaption>
+                Validation accuracy on 6 datasets using 6 different models with 5 trials each.
+            </figcaption>
+        </figure>
+        <figure>
+            <img src="source/prediction-overlap.png" width="90%">
+            <figcaption>
+                Validation accuracy on 6 datasets using 6 different models with 5 trials each.
+            </figcaption>
+        </figure>
     </div>
 
 

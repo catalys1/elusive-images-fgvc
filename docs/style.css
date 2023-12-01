@@ -38,3 +38,15 @@ button:hover {
 #abstract {
     text-align: justify;
 }
+
+figure {
+    margin: 0;
+    padding: 0 0 0.4in 0;
+    text-align: center;
+    font-size: 95%;
+    font-style: italic;
+}
+
+li~li {
+    padding-top: 0.125in;
+}
