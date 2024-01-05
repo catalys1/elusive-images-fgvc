@@ -73,15 +73,16 @@
     <hr>
     <div class='section'>
         <h2>Method</h2>
-        <p style="color: red">TODO</p>
+        <p>We propose three methods for analyzing image and class difficulty: prediction overlap, prediction rank, and
+           pairwise class confusion. We use these methods to analyze difficulty in FGVC datasets.</p>
         <figure>
-            <img src="source/overlap-and-rank.png" alt="" width="85%" ></img>
+            <img src="source/overlap-and-rank.png" alt="" width="85%" />
             <figcaption>
                 Illusration of <b>prediction overlap</b> (left) and <b>prediction rank</b> (right).
             </figcaption>
         </figure>
         <figure>
-            <img src="source/pairwise-confusion.png" alt="" width="90%" ></img>
+            <img src="source/pairwise-confusion.png" alt="" width="90%" />
             <figcaption>
                 Illustration of <b>pairwise class confusion</b>.
             </figcaption>
@@ -98,11 +99,11 @@
         This allows us to test CUB models on a more difficult set of data to see how they generalize.
         </p>
         <figure>
-            <img src="source/icub-samples.png" alt="iCub sample images" width="100%" ></img>
+            <img src="source/icub-samples.png" alt="iCub sample images" width="100%" />
             <figcaption>A random sampling of images from the proposed iCub dataset.</figcaption>
         </figure>
         <figure>
-            <img src="source/cub-icub-stats.png" width="100%">
+            <img src="source/cub-icub-stats.png" width="100%" />
             <figcaption>
                 One way iCub differs from CUB is in the spatial distribution of the birds with respect
                 to the image; in particular, iCub contains many birds that are small (occupy a small area
@@ -115,17 +116,58 @@
     <hr>
     <div class='section'>
         <h2>Results</h2>
-        <p style="color: red">TODO</p>
+        <p>For our analysis, we train five models (using different random seeds) for each of the model
+           types. Accuracy of these models is shown below. We find that the models tend to underperform
+           the results reported in their respective papers when they are reimplemented in a standardized
+           context. We found that WS-DAN performed particularly well, despite being an older approach.
+        </p>
         <figure>
-            <img src="source/model-accuracy.png" width="90%">
+            <img src="source/model-accuracy.png" width="90%" />
             <figcaption>
                 Validation accuracy on 6 datasets using 6 different models with 5 trials each.
             </figcaption>
         </figure>
+        <p>We also show results of applying our proposed difficulty analysis methods: prediction overlap,
+           prediction rank, and similar class confusion.
+        </p>
         <figure>
-            <img src="source/prediction-overlap.png" width="90%">
+            <img src="source/prediction-overlap.png" width="90%" />
             <figcaption>
-                Validation accuracy on 6 datasets using 6 different models with 5 trials each.
+                Prediction overlap measured on each dataset, using 30 predictions for each image. We show
+                the percentage of images in each overlap group, with perfect overlap (no incorrect
+                predictions) on the left and zero overlap (no correct predictions) on the right. In all
+                datasets, we see a large percentage of the images are always predicted correctly, but there
+                is also a significant portion of the images that are never predicted correctly, and many
+                that are rarely predicted correctly.
+            </figcaption>
+        </figure>
+        <figure>
+            <img src="source/image-class-rank.png" width="45%" />
+            <figcaption>
+                A comparison between the prediction rank for each image and the average prediction rank for
+                images in the same class. This shows a similar pattern as prediction overlap; on average,
+                the rank is low (the correct class is one of the highest predictions), but there are specific
+                images that have much higher rank.
+            </figcaption>
+        </figure>
+        <figure>
+            <img src="source/class-confusion.png" width="90%" />
+            <figcaption>
+                Confusion matrices for each dataset. Darker color indicates more predictions. Red cells show
+                similar classes, defined as classes for which the KL-divergence is more than 3 standard
+                deviations below the mean (across all pairs of classes in the dataset), and blue cells show
+                predictions in non-similar classes.
+            </figcaption>
+        </figure>
+        <p>Finally, we show some examples of difficult images. We notice some patterns in these images such as
+            camoflauge, occlusion, non-standard poses, or multiple objects. We hypothesize that these factors
+            contribute to the image difficulty; but we must be careful not to confuse correlation with
+            causation. Determining the real or exact reasons for misclassification is a challenging task.
+        </p>
+        <figure>
+            <img src="source/elusive-hard-examples.png" width="90%" />
+            <figcaption>
+                Examples of challenging images: elusive images on the left, and hard images on the right.
             </figcaption>
         </figure>
     </div>
